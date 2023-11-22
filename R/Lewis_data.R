@@ -1,6 +1,9 @@
+#Code to calculate thermal niches of fish eggs 
+#from EcoMon survey program & barcoding results reported in Lewis et al (2016)
+
 # Tue Nov 21 09:55:08 2023 ------------------------------
 
-
+#load packages
 library(readxl)
 library(dplyr)
 library(tidyr)
@@ -9,26 +12,36 @@ library(here)
 library(ggplot2)
 
 #Load data
-#db <- read_excel("FishEggDatabase_GenID.accdb.xls",sheet = "StationData")
-db <- read.csv("data/EcoMon_Plankton_Data.csv")
-eggs<- read_excel("FishEggDatabase_GenID.accdb.xls", sheet = "EggIDData")
+#Load station data from subset of stations with ethanol-preserved samples
+db <- read_excel("data/FishEggDatabase_GenID.accdb.xls",sheet = "StationData")
+#remove rows with NA egg count
+db <- db %>% filter(is.na(Egg_Count) == F)
+#convert egg counts to numeric, station to factor
+db$Egg_Count <- as.numeric(db$Egg_Count)
+db$Station <- as.double(db$Station)
+#rename columns to match ecomon
+db <- db %>% rename(cruise_name = Cruise_Name, station = Station)
 
-#rename eggs columns
-eggs<- eggs %>% rename(Sample_ID=`Sample ID`, Common_Name = `Common Name`,cruise_name=Cruise, station=Station)
+#Load all EcoMon station data
+ecomon <- read.csv("data/EcoMon_Plankton_Data.csv")
+ecomon$station<-as.double(ecomon$station)
+#join datasets, select for relevant columns
+db_trim<- left_join(db,ecomon,by=c("cruise_name","station")) %>% dplyr::select(cruise_name,station,sfc_temp,date,Egg_Count)
 
-#Trim data for relevant columns
-db_trim<- db %>% dplyr::select(cruise_name,station,sfc_temp,date)
-db_trim$station<-as.factor(db_trim$station)
-eggs_trim<- eggs %>% dplyr::select(Sample_ID,cruise_name,station,Common_Name)
-eggs_trim$station<-as.factor(eggs_trim$station)
-
-#join egg data with temperature data
-egg_cruise<-left_join(eggs_trim,db_trim, by = c("cruise_name","station"))
-
-#histogram of all stations
-egg_cruise %>% dplyr::select(cruise_name,station,sfc_temp) %>% distinct() %>%
+#histogram of SST of all stations
+db_trim %>% 
   ggplot(aes(x=sfc_temp, color=cruise_name, fill=cruise_name,binwidth = 0.5))+
   geom_histogram(alpha=0.5)
+
+#load in DNA barcoding results
+eggs<- read_excel("data/FishEggDatabase_GenID.accdb.xls", sheet = "EggIDData")
+#rename eggs columns
+eggs<- eggs %>% rename(Sample_ID=`Sample ID`, Common_Name = `Common Name`,cruise_name=Cruise, station=Station)
+eggs_trim<- eggs %>% dplyr::select(Sample_ID,cruise_name,station,Common_Name)
+eggs_trim$station<-as.double(eggs_trim$station)
+
+#join egg data with temperature data
+egg_temp<-left_join(eggs_trim,db_trim, by = c("cruise_name","station"))
 
 stations_ecomon<-egg_cruise %>% dplyr::select(cruise_name,station,sfc_temp) %>% distinct()
 stations_all<-bind_rows(stations,stations_ecomon) 
@@ -36,11 +49,46 @@ ggplot(data = stations_all,aes(x=sfc_temp))+
   geom_histogram(alpha=0.5,fill="magenta",color="magenta")
 
 #Look at one species = silver hake
-silver<- egg_cruise %>% filter(Common_Name == "Silver hake")
+silver<- egg_temp %>% filter(Common_Name == "Silver hake")
 
 ggplot() +
   geom_histogram(data=stations_ecomon,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,fill="magenta")+
   geom_histogram(data=silver,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,color="black")
+
+#what might niche breadth be?
+#establish a column that is rounded to nearest 0.5degC
+db_trim <- db_trim %>% mutate(temp_bin = round(sfc_temp*2)/2)
+#tally, calculate proportion
+temp_dist <- db_trim %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
+  mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples)
+
+#apply to silver
+silver <- silver %>% mutate(temp_bin = round(sfc_temp*2)/2)
+silver_dist <- silver %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
+  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
+
+silver_niche<-left_join(temp_dist,silver_dist,by="temp_bin") %>% 
+  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
+  mutate (niche = sqrt(prop_samples*prop_fish))
+
+silver_NB <- sum(silver_niche$niche)
+
+#apply to Gulf stream flounder
+gs_flounder<-egg_temp %>% filter(Common_Name == "Gulf Stream flounder")
+ggplot() +
+  geom_histogram(data=stations_ecomon,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,fill="magenta")+
+  geom_histogram(data=gs_flounder,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,color="black")
+
+
+gs_flounder <- gs_flounder %>% mutate(temp_bin = round(sfc_temp*2)/2)
+gs_flounder_dist <- gs_flounder %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
+  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
+
+gs_flounder_niche<-left_join(temp_dist,gs_flounder_dist,by="temp_bin") %>% 
+  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
+  mutate (niche = sqrt(prop_samples*prop_fish))
+
+gs_flounder_NB <- sum(gs_flounder_niche$niche)
 
 #cod
 cod<- egg_cruise %>% filter(Common_Name == "Atlantic cod")
@@ -60,12 +108,6 @@ hist(red$temp,main="Red Hake (n=139)", xlab = "Temp",prob=T,xlim = c(0,30))
 yellowtail<-subset(eggs.trim,eggs.trim$`Common Name` == "Yellowtail flounder")
 hist(yellowtail$temp, main="Yellowtail Flounder (n=74)", xlab = "Temp",prob=T,xlim = c(0,30))
 
-
-#Gulf stream flounder
-gs_flounder<-egg_cruise %>% filter(Common_Name == "Gulf Stream flounder")
-ggplot() +
-  geom_histogram(data=stations_ecomon,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_histogram(data=gs_flounder,aes(x=sfc_temp),binwidth = 0.5, alpha=0.5,color="black")
 
 
 #Fourspot flounder
