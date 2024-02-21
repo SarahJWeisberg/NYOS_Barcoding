@@ -1,0 +1,303 @@
+---
+title: "NYOS Transects and Stations with Fish DNA Barcoding Results"
+author: "Eleanor Heywood; modified by Sarah Weisberg"
+date: "7/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "~/Google Drive/My Drive/NYOS_megafolder/cruise.plans/cruise.waypoints/")
+
+library(ggplot2)
+library(tidyverse)
+library(sf)
+library(broom)
+```
+
+
+## Load cruise data and create station (point) and transect (line) sf objects
+## Load DNA barcoding data, filter and format properly
+```{r load data}
+# load in the cruise waypoints
+study_area <- read_csv(file = "data/DEC_cruise_waypoints_201905.csv")
+
+#load in barcoding data
+fish<-read_csv(file = "data/Barcoding_Results_Full.csv")
+
+#remove all columns but genus, species, common name, station, type
+fish_filter<- fish %>% select(c("Genus species","Common_Name","Cruise ID","Station ID","Stage")) %>% na.omit()
+
+#change "Station ID" column name to "Waypoint", "Cruise ID" to "Cruise"
+fish_filter<-fish_filter %>% rename("Waypoint" = "Station ID")
+fish_filter<-fish_filter %>% rename("Cruise" = "Cruise ID")
+fish_filter$Waypoint<-as.character(fish_filter$Waypoint)
+
+#Change "Atlantic Butterfish" and "Gulf Butterfish" to "Butterfish"
+# fish_filter<-fish_filter%>%
+#   mutate(Common_Name = replace(Common_Name,Common_Name == "Atlantic Butterfish" | Common_Name =="Gulf Butterfish", "Butterfish"))
+
+# #separate by cruise
+# spring_21<-filter(fish_filter,Cruise== 2105)
+# 
+# #separate eggs out
+# spring_21_eggs<-filter(spring_21, Stage == "Egg") %>% select(-"Stage")
+# 
+# #summarize eggs by station
+# spring_21_eggs<-count(spring_21_eggs, Waypoint, Common_Name) 
+# 
+# #separate larvae out
+# spring_21_larvae<-filter(spring_21, Stage == "Larva")  %>% select(-"Stage")
+# 
+# #summarize larvae by station
+# spring_21_larvae<-count(spring_21_larvae, Waypoint, Common_Name)
+
+#think there's a more efficient tidy way to do this
+tallied<-fish_filter %>% group_by(Cruise,Stage,Waypoint,Common_Name) %>% tally()
+unique_sp<-fish_filter %>% group_by(Cruise,Stage) %>% summarize(count_sp = n_distinct(Common_Name))
+
+#load in all data, change Waypoint column to match above
+# all_stations<-read_csv(file = "NYOS2105_all.csv")
+# colnames(all_stations)[1]<-"Waypoint"
+# all_stations$Waypoint<-as.character(all_stations$Waypoint)
+# 
+# #remove 7.11 (extra sampling) - for now
+# all_stations<-all_stations[-40,]
+# #remove notes columns
+# all_stations<-all_stations[,c(1,3,4)]
+
+study_area <- study_area %>% mutate(Transect = substr(Waypoint,1,1))
+
+
+stations <- study_area %>% filter(Transect != "C") %>% st_as_sf(coords = c("Longitude", "Latitude"), remove = FALSE) %>% st_set_crs(4326)
+
+#add in columns for eggs barcoded
+#remove NAs
+# eggs_map <- left_join(study_area,spring_21_eggs, by = "Waypoint")
+# #eggs_map[is.na(eggs_map)]<-0
+# eggs_map<-eggs_map[complete.cases(eggs_map),]
+# 
+# #add in columns for larvae barcoded
+# #remove NAs
+# larvae_map <- left_join(study_area,larvae, by = "Waypoint")
+# #eggs_map[is.na(eggs_map)]<-0
+# larvae_map<-larvae_map[complete.cases(larvae_map),]
+
+# #add in columns for all eggs & larvae found
+# all_map<-left_join(study_area,stations,by="Waypoint")
+# all_map[all_map == 0] <-NA
+
+#or - better way
+tallied <- left_join(tallied,study_area,by = "Waypoint")
+
+transects <- stations %>% filter(Transect %in% c(1:7)) %>% dplyr::group_by(Transect) %>%
+    dplyr::summarise(do_union=FALSE) %>%
+    sf::st_cast("LINESTRING")
+
+```
+
+
+## 1. Establish base plot
+
+```{r create base plot}
+#Package dependences
+pkg <- c("marmap","ggplot2","gpclib","dplyr","lubridate","sf")
+#Call in packages
+lapply(pkg, require, character.only=T)
+
+# #Call in coastline data
+# #This part of script converts the coastline shapefile into a cropped dataframe.
+if (!require(gpclib)) install.packages("gpclib", type="source")
+maptools::gpclibPermit()
+# Load in Long Island Coastal Shapefile
+coastline <-raster::shapefile("data/GSHHS_f_L1_CLIPPED2LONGISLAND.shp")
+coast_sub <- raster::crop(coastline, raster::extent(-74.5, -71.0, 38.25, 41.5)) # crop to study site
+coast_sub@data$id <- rownames(coast_sub@data) # make some rownames
+coast_sub <- sf::st_as_sf(coast_sub, region = "id") # fortify
+# ####################
+# #Call in bathymetric data
+# #This part of script converts the bathymetric contours and accompanying data into a cropped dataframe. 
+nybathy <- getNOAA.bathy(-74.5, -71, 38.25, 41.5, resolution=1); bathydf <- as.xyz(nybathy) 
+bathydf$col <- NA
+bathydf$col <- ifelse(bathydf$V3 >= -100, ifelse(bathydf$V3 < -15, "b","a"),"c")
+bathydf$col <- factor(bathydf$col, levels=c("a",""))
+# ####################
+# #Separate land from ocean.
+# #This part of script helps to properly overlay the coastline data on the background bathymetric layer since `marmap` can only provide very
+# #coarse coastline resolution. 
+bathy_sea <- bathydf; bathy_sea$V3[bathy_sea$V3 > 1] <- NA
+coast_fort <- fortify.map(coast_sub)
+coast_fort <- coast_sub
+# ####################
+# #Generate basemap
+# #This part of script generates the actual basemap that can be used for future plotting functions.
+# #This part of the script is broken up by comments explaining the function of each part. Edit accordingly. 
+basemap <- ggplot() + 
+  #This creates bathymetric raster layer; smooth interpolation
+  geom_raster(data=bathy_sea, aes(x=V1, y=V2, fill=V3)) +
+  #   #This creates bathymetric contour lines at: 50, 100, 500, 1000, 2000, and 3000 m depth thresholds
+  geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3), 
+               breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black") +
+  #   #This creates coastline polygons
+  geom_polygon(data=coast_fort, aes(x=long, y=lat, group=group), fill="gray60", color="black") +
+  #   #This normalizes the x- and y-axes so there aren't any funky empty white space between the axis edges and the actual plot
+  coord_equal(expand=FALSE, ylim=c(38.25, 41.5), xlim=c(-74.5, -71)) +
+  #   #Set latitudinal axis breaks to look prettier
+  scale_y_continuous(breaks=c(39,40,41)) +
+  scale_x_continuous(breaks = c(-74,-73,-72,-71))+
+  #   #Set bathymetric gradient breaks
+  scale_fill_gradient(limits=c(-3500,0), na.value="#daedf7", low="#586575", high="#daedf7",
+                      breaks=c(-500,-1500,-2500,-3500), labels=c(500,1500,2500,3500)) +
+  #   #Label axes
+  labs(x=expression(paste("Longitude (",degree,"W)")),
+       y=expression(paste("Latitude (",degree,"N)")),
+       fill="Depth (m)") + 
+  #   #Setting some plotting parameters, like text size and background color
+  theme_bw() +
+  theme(text=element_text(size=10), axis.text=element_text(size=10, color="black"),
+        strip.background=element_blank(), strip.text=element_blank(),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        legend.margin = margin(t=0, r=0, b=0, l=0, unit ="pt")) +
+ #  #   #Generate scalebar
+ #  ggsn::scalebar(x.min=-74, x.max=-73.2, y.min=41.4, y.max=41.5,
+ #                 dist=50, st.size=3, model="WGS84", dist_unit="km", transform=T,
+ #                 height=0.4, st.dist=0.8) +
+ #  #Generate North arrow
+ # ggsn::north(x.min=-74.5, x.max=-73.9, y.min=41, y.max=41.3, scale=1, symbol=3) +
+  #Label bathymetric contours
+  geom_text(aes(x=x, y=y, label=text),
+            data=data.frame(x=c(rep(-71.23,3),rep(-71.28,2)), 
+                            y=c(40.925, 40.025, 39.875, 39.75,39.55), 
+                            text=c("50 m","100 m","500 m","1000 m","2000 m")),
+            color=c(rep("black",1),rep("white",4)),size=3)+
+  guides(fill="none")
+
+basemap
+```
+
+
+## 2. Plot stations and transects
+```{r map the transects and waypoints with labels}
+study_area <- study_area %>% filter(Transect != "C")
+p <- basemap +
+  geom_sf(data = transects, color = "purple", size = 1) +
+  geom_point(data = tallied, mapping = aes(x=Longitude, y = Latitude, size=n), color = "black") #+
+  #geom_text(data = study_area, mapping = aes(x = Longitude, y = Latitude, label = Waypoint), 
+  #      size = 6, col = "white", fontface = "bold", stat = "identity",nudge_x = -0.12, nudge_y = #-.027)+
+ #   coord_sf(expand=c(0,0), ylim=c(38.25, 41.5), xlim=c(-74.5, -71))
+p
+
+
+
+#Now put that in a map
+# eggs_map[eggs_map==0]<-NA
+# library(RColorBrewer)
+# colourCount <- length(unique(spring_21_eggs$Common_Name))
+# getPalette <- colorRampPalette(brewer.pal(15,"Paired"))
+
+#filter out 2103, juveniles
+tallied_filter<-tallied %>% filter(Cruise != "2103") %>% filter(Stage!="Juvenile")
+#for now, take out a few rare species
+tallied_filter <- tallied_filter %>% filter(Common_Name != "Cusk-Eel sp.")
+
+# install.packages("Polychrome")
+library(Polychrome)
+
+# build-in color palette
+Glasbey <-glasbey.colors(length(unique(tallied_filter$Common_Name)))
+swatch(Glasbey)
+Glasbey<-as.vector(Glasbey)
+
+#set unique color for each species
+sp_colors<-as.data.frame(cbind(unique(tallied_filter$Common_Name),Glasbey))
+colnames(sp_colors)<-c("Species","Fill")
+
+cruises<-unique(tallied_filter$Cruise)
+
+#all egg maps
+eggs<-tallied_filter %>% filter(Stage == "Egg")
+basemap+
+  geom_point(data=tallied_filter,mapping=aes(x=Longitude, y=Latitude, size = n, color= Common_Name), position = "jitter")+
+  facet_wrap(~Cruise)
+# p<-c()
+# for (i in 1:length(cruises)){
+#   cruise_map<-tallied_filter %>% filter(Cruise == cruises[i], Stage == "Egg")
+#   p[i]<-basemap+
+#   geom_point(data=cruise_map,mapping=aes(x=Longitude, y=Latitude, size = n, color= Common_Name), position = "jitter")+
+#    scale_color_manual(values = Glasbey)
+#   }
+
+p<-basemap+
+  geom_point(data=tallied %>% filter(Cruise == "2105", Stage == "Egg"),mapping=aes(x=Longitude, y=Latitude, size = n, color= Common_Name), position = "jitter")+
+   scale_color_manual(values = Glasbey)
+  
+p
+
+p<-basemap+
+  geom_point(data=tallied %>% filter(Cruise == "2207", Stage == "Larva"),mapping=aes(x=Longitude, y=Latitude, size = n, color= Common_Name), position = "jitter")+
+   scale_color_manual(values = c("Atlantic Mackerel" = "blue",
+                                 "Blackfish" = "black",
+                                 "Fourspot Flounder" = "pink",
+                                 "Windowpane Flounder" = "green",
+                                 "Slender Lightfish" = "yellow",
+                                 "test" = "magenta",
+                                 ))
+  
+p
+
+p<-basemap+geom_point(data=tallied %>% filter(Cruise == "2207", Stage == "Larva"),mapping=aes(x=Longitude, y=Latitude, size = n, color= Common_Name), position = "jitter")+
+   scale_color_manual(values = c("Black Seabass"= "#FFFFFF",
+                                 "Blackfish" = "#0000FF",
+                                 "Cunner" = "#FF0000",
+                                 "Fourspot Flounder" = "#00FF00",
+                                 "Gulfstream Flounder" = "#000033",
+                                 "Scup" = "#FF00B6",
+                                 "Butterfish"="#005300",
+                                 "Silver Hake" = "#FFD300",
+                                 "Striped Searobin" = "#009FFF",
+                                 "Windowpane Flounder" = "#9A4D42",
+                                 "Atlantic Mackerel" = "#00FFBE",
+                                 "Yellowtail Bass" = "#783FC1",
+                                 "Atlantic Menhaden" = "#1F9698",
+                                 "Fourbeard Rockling" = "#FFACFD",
+                                 "Goosefish" = "#B1CC71",
+                                 "Witch Flounder" = "#F1085C",
+                                 "Slender Lightfish" = "#FE8F42",
+                                 "Blackwing Searobin" = "#DD00FF",
+                                 "Northern Searobin" = "#201A01",
+                                 "Smallmouth Flounder" = "#720055",
+                                 "Red Hake"="#766C95",
+                                 "Bullet Tuna" = "#02AD24",
+                                 "Cobia" = "#C8FF00",
+                                 "Margined Snake Eel" = "#886C00",
+                                 "Atlantic Thread Herring" = "#FFB79F",
+                                 "Bluefish" = "#858567",
+                                 "Northern Kingfish" = "#A10300",
+                                 "Weakfish" = "#14F9FF",
+                                 "Blackrim Cusk-Eel" = "#00479E",
+                                 "Little Tunny" = "#DC5E93",
+                                 "Northern Stargazer" = "#93D4FF",
+                                 "Southern Kingfish" = "#004CFF",
+                                 "Grey Tilefish" = "black"))+
+  guides(size="legend")
+ # theme(legend.position = "none")
+  
+p
+
+p<-basemap+
+  geom_point(data=tallied_filter %>% filter(Stage == "Egg"),mapping=aes(x=Longitude, y=Latitude, size = n), position = "jitter")+
+  facet_wrap(~Cruise)+
+   scale_color_manual(values = sp_colors$Fill)
+  
+p
+
+#Map larvae
+larvae_map[larvae_map==0]<-NA
+
+l<-basemap+
+  geom_point(data=larvae_map,mapping=aes(x=Longitude, y=Latitude, color = Common_Name, size = n), position = "jitter")+
+  scale_color_brewer(palette = "Paired")
+
+  
+l
+```
