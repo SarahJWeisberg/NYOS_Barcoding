@@ -58,8 +58,8 @@ db_trim<- left_join(db,sst,by="cruise_station") %>%
 
 #histogram of SST of all stations
 db_trim %>%
-  ggplot(aes(x=SST, color=Cruise_Name, fill=Cruise_Name,binwidth = 0.5))+
-  geom_histogram(alpha=0.5)
+  ggplot(aes(x=SST, ,binwidth = 0.5))+
+  geom_histogram(alpha=0.5,color="orange",fill="orange")
 
 #join egg data with temperature data
 egg_temp<-left_join(eggs,sst, by = "cruise_station") 
@@ -151,7 +151,10 @@ temp_dist <- db_trim %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin)
 #get cdf plots for several species of interest
 spp<-egg_estimates %>% group_by(Common_Name) %>% mutate(total=sum(est)) %>% 
   dplyr::select(Common_Name,total) %>% distinct()
-high_abd_spp<-spp %>% ungroup() %>% slice_max(total,n=10)
+high_abd_spp<-spp %>% ungroup() %>% slice_max(total,n=8)
+
+#or select 3 species of interest
+spp_interest<-c("Silver hake","American fourspot flounder","Gulf Stream flounder")
 
 cdfs_lewis<-c()
 for(i in 1:length(high_abd_spp$Common_Name)){

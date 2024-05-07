@@ -36,10 +36,11 @@ fish_filter <- left_join(fish_filter,stations_filter,by=c("Cruise_ID","Station_I
 #silver hake eggs
 silver<-fish_filter %>% filter(Common_Name == "Silver Hake" & Stage == "Egg") 
 
+
 #plot temp data - all
 stations %>%
-  ggplot(aes(x=SST, color=Cruise_ID, fill=Cruise_ID)) +
-  geom_histogram(binwidth = 0.5, alpha=0.5)
+  ggplot(aes(x=SST)) +
+  geom_histogram(binwidth = 0.5, alpha=0.5, color="#A58AFF",fill="#A58AFF")
 
 #tally all
 fish_tally <- fish_filter %>% group_by(Common_Name,Stage) %>% tally()
@@ -85,6 +86,12 @@ ggplot() +
 #establish a column that is rounded to nearest 0.5degC
 #based on Asch & Erisman, 2018
 temp_dist_NYOS <- stations_filter %>% mutate(temp_bin = round(SST*2)/2)
+
+#plotstations
+temp_dist_NYOS%>%
+ggplot(aes(x=SST, color=Cruise_ID, fill=Cruise_ID)) +
+  geom_histogram(binwidth = 0.5, alpha=0.5)
+
 #tally, calculate proportion
 temp_dist_NYOS <- temp_dist_NYOS %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
   mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples)
@@ -114,28 +121,29 @@ for(i in 1:length(spp_interest)){
     mutate(cdf_q_norm = cumsum(q_norm)) %>%
     mutate(spp = sp) %>%
     mutate(Stage = "Egg")
-  larv_niche<- sp_dist %>% 
-    filter(Stage == "Larva")%>% ungroup %>%
-    dplyr::select(-Stage)
-  larv_niche<- left_join(temp_dist_NYOS,larv_niche,by="temp_bin") %>%
-    mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-    mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-    mutate(q = prop_fish/prop_samples) %>%
-    mutate(q_norm = q/sum(q)) %>%
-    mutate(cdf_q_norm = cumsum(q_norm)) %>%
-    mutate(spp = sp) %>%
-    mutate(Stage = "Larva")
-  cdfs <- rbind(cdfs,egg_niche,larv_niche)
+  # larv_niche<- sp_dist %>% 
+  #   filter(Stage == "Larva")%>% ungroup %>%
+  #   dplyr::select(-Stage)
+  # larv_niche<- left_join(temp_dist_NYOS,larv_niche,by="temp_bin") %>%
+  #   mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
+  #   mutate (niche = sqrt(prop_samples*prop_fish)) %>%
+  #   mutate(q = prop_fish/prop_samples) %>%
+  #   mutate(q_norm = q/sum(q)) %>%
+  #   mutate(cdf_q_norm = cumsum(q_norm)) %>%
+  #   mutate(spp = sp) %>%
+  #   mutate(Stage = "Larva")
+  cdfs <- rbind(cdfs,egg_niche)
 }
 
 #plot
-ggplot(data=cdfs,aes(x=temp_bin,y=cdf_q_norm,color=Stage))+
-  geom_line()+
-  facet_wrap(~spp)
+ggplot(data=cdfs,aes(x=temp_bin,y=cdf_q_norm,color=spp))+
+  geom_line(linewidth=1)+
+  facet_wrap(~spp)+
+  theme(legend.position = "none")
 
 cdfs %>% filter(spp == "Silver Hake") %>%
   ggplot()+
-  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=Stage))+
+  geom_line(aes(x=temp_bin,y=cdf_q_norm))+
   geom_line(data=silver_niche,aes(x=temp_bin,y=cdf_q_norm,color="Lewis"))+
   labs(title="Silver Hake")
 
@@ -150,3 +158,12 @@ cdfs %>% filter(spp == "Gulfstream Flounder") %>%
   geom_line(aes(x=temp_bin,y=cdf_q_norm,color=Stage))+
   geom_line(data=gs_flounder_niche,aes(x=temp_bin,y=cdf_q_norm,color="Lewis"))+
   labs(title="Gulfstream Flounder")
+
+
+cdfs_all %>% filter(!data=="EcoMon") %>%
+  ggplot()+
+  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp,linetype = data),linewidth=1)+
+  scale_color_manual(values = c("#00BA38","#00BFC4","#F564E3"))+
+  facet_wrap(~spp)+
+  guides(color="none")
+  

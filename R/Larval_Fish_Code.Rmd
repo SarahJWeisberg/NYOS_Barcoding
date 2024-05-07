@@ -1,0 +1,353 @@
+---
+title: "EcoMon_Larvae_Temp_Pref"
+author: "Sarah Weisberg"
+output: html_document
+date: "2024-05-06"
+---
+Modeled on code from Weisberg et al 2024 (MEPS)
+
+#0 Prep
+  load your packages and data for analysis 
+ 
+```{r}
+#spatial analysis
+library(sf) #r spatial package
+library(sp) #r spatial package
+library(spatialEco) #more advanced GIS
+library(rnaturalearth) #simple spatial data 
+library(marmap) #bathymetric data
+
+#plotting
+library(ggplot2) 
+library(ggthemes) 
+library(ggcorrplot)
+library(ggpubr)
+library(patchwork)
+library(ggpmisc)
+library(gridExtra)
+library(rmapshaper)
+library(RColorBrewer)
+
+#data wrangling
+library(lubridate) #dates
+library(dplyr) #tidy 
+library(tidyverse) #tidy
+library(zoo) #ordering
+library(broom) #converts to tidy 
+library(readxl) #reading 
+library(here)
+
+#modeling
+library(ggfortify) #pca analysis
+library(rstatix) #modeling with tidy
+library(tweedie) #tweedie distribution
+library(glmmTMB)#mixed models 
+
+
+
+#load in countries for plotting 
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+#set overall theme 
+
+theme_Publication <- function(base_size=10, base_family="Arial") {
+  
+  (theme_foundation(base_size=base_size, base_family=base_family)
+   + theme(plot.title = element_text(hjust = 0.5),
+           text = element_text(),
+           panel.background = element_rect(colour = NA),
+           plot.background = element_rect(colour = NA),
+           panel.border = element_rect(colour = NA),
+           axis.title = element_text(size = rel(1)),
+           axis.title.y = element_text(angle=90,vjust =2),
+           axis.text = element_text(), 
+           axis.line = element_line(colour="black"),
+           axis.ticks = element_line(),
+           panel.grid.major = element_line(colour="#f0f0f0"),
+           panel.grid.minor = element_blank(),
+           legend.key = element_rect(colour = NA),
+           legend.position = "right",
+           legend.spacing  = unit(0, "cm"),
+           legend.title = element_text(face="italic"),
+           strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0")
+   ))
+  
+}
+
+select <- dplyr::select
+```
+load in the data 
+accession date: May 6, 2024
+```{r}
+ecomon <- read.csv(here("data/EcoMon_Data/EcoMon_Plankton_Data_v3_8.csv"))
+```
+
+
+Convert date to a date column using lubridate
+```{r}
+#convert data and create year, month, day columns: 
+
+ecomon$date <- as.Date(ecomon$date, format =  "%d-%b-%y") #b here is the code for month when its words 
+ecomon$month <- month(ecomon$date)
+ecomon$year <- year(ecomon$date)
+ecomon$day <- day(ecomon$date)
+
+ecomon$ID_points <- as.character(rownames(ecomon))
+```
+
+
+
+#1 combine with the strata dataset 
+the ecomon data is collected as abundance per m2 and collected within each stratum every two months, so we need to know the stratum area to get out raw average abundance. Some strata are sampled more than once a cruise
+
+average abd/m2 per stratum * area of each stratum = raw abundance
+
+##1.1 stratum data 
+plot the stratum data and points 
+```{r}
+#load stratum
+stratum <- read_sf(here("data/EcoMon_Data/EcomonStrata_v4b.shp"))
+
+#you may have a validity issue - can check with sf::st_is_valid()
+stratum <- sf::st_buffer(stratum, 0)
+
+#plot three different ways to get a sense of what it looks like
+plot(stratum)
+plot(st_geometry(stratum), col = sf.colors(12, categorical = TRUE), border = 'grey', 
+     axes = TRUE)
+
+plot(stratum["Name"], col = sf.colors(12, categorical = TRUE), border = 'grey', 
+     axes = TRUE)
+
+st_crs(stratum) = 4326 #this is WGS 1984
+
+#make ecomon spatial with the same defined coordinate system
+ecomon_sp <- st_as_sf(x = ecomon, 
+                      coords = c("lon", "lat"),
+                      crs = 4326)
+
+
+
+#checkit that the stratum and ecomon data overlap with ggplot
+ggplot() + geom_sf(data = world) + 
+  geom_sf(data = stratum, fill = NA, colour = "red") + 
+  geom_sf(data = subset(ecomon_sp, ecomon_sp$year ==1997), size = .2) + 
+  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
+  theme(panel.background = element_rect(fill = "white", colour = "black"),
+        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
+                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
+                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
+  ggtitle("Ecomon Data", subtitle ="1997")
+
+
+#make sure the stratum area information is valid 
+ggplot() + geom_sf(data = world) + 
+  geom_sf(data = stratum, aes(fill = Area)) + 
+  geom_sf(data = subset(ecomon_sp, ecomon_sp$year ==1997), size = .2) + 
+  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
+  theme(panel.background = element_rect(fill = "white", colour = "black"),
+        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
+                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
+                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
+  ggtitle("Ecomon Data", subtitle ="Area")
+
+
+```
+
+
+##1.2 extract stratum values to points
+note - there are 270 points that are outside of the strata 
+```{r}
+#get a spherical geometry error - need to follow these steps or use sf_use_s2(FALSE): https://stackoverflow.com/questions/68478179/how-to-resolve-spherical-geometry-failures-when-joining-spatial-data
+sf::sf_use_s2(FALSE)
+
+#intersection 
+ecomon_extract <- st_intersection(ecomon_sp, stratum)
+
+inside_test <- ecomon_extract
+inside_test$inside <- "yes"
+
+#make sure those points that we lost were actually outside of the study region 
+diff_test <- left_join(ecomon, inside_test, by = "ID_points")
+
+ggplot() + geom_sf(data = world) + 
+  geom_sf(data = stratum, fill = NA, colour = "red") + 
+  geom_point(data = subset(diff_test, is.na(diff_test$inside)), size = .2, aes(x = lon, y = lat)) + 
+  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
+  theme(panel.background = element_rect(fill = "white", colour = "black"),
+        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
+                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
+                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
+  ggtitle("Ecomon Data", subtitle ="these points are outside")
+
+#this tells us that 270 points are outside of the strata
+
+
+#get out the coordinate information 
+ecomon_coords <- ecomon_extract %>% st_coordinates() 
+ecomon_extract <- cbind(ecomon_extract, ecomon_coords)
+
+#convert it to a data frame because we will be doing calculations down the road that will slow down if the geometry is still there 
+ecomon_extract <- ecomon_extract %>% st_drop_geometry()
+ecomon_extract <- ecomon_extract %>% dplyr::rename(lon = X, lat = Y) #rename for later 
+
+
+#plotit to make sure all of the overlapping ecomon points are colored by stratum
+ggplot() + geom_sf(data = world) + 
+  geom_sf(data = stratum, fill = NA, aes(group = as.factor(Name), colour = as.factor(Name))) + #adding in group = Name makes ggplot know how to group the spatial object
+  geom_point(data = subset(ecomon_extract, ecomon_extract$year ==1997), aes(x = lon, y = lat, colour = as.factor(Name)), size = .2) + 
+  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
+  theme(panel.background = element_rect(fill = "white", colour = "black"),
+        legend.position="bottom",
+        legend.title=element_blank(),
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(y = element_blank(), x = element_blank()) + 
+  ggtitle("Ecomon Data", subtitle ="1997")+ guides(color = guide_legend(override.aes = list(size = 0.5))) + guides(col = guide_legend(nrow = 2))
+
+
+
+
+ggplot() + geom_sf(data = world) + 
+  geom_sf(data = stratum, fill = NA, colour = "red") + 
+  geom_sf(data = ecomon_sp, size = .2) + 
+  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
+  theme(panel.background = element_rect(fill = "white", colour = "black"),
+        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
+                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
+                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
+  ggtitle("Ecomon Data", subtitle ="all")
+
+```
+
+#2 tidy the data
+now that we have a beautiful dataset, lets tidy it up.
+
+Here we convert NAs to true 0s and select only data after 1998. The processing of ichthyoplankton from the EcoMon cruises only began in 1999, after the end of GLOBEC, but in recent years selected cruises from the earlier period have been processed (https://doi.org/10.1093/icesjms/fsp276)
+
+##2.1 adding columns
+```{r}
+ecomon_extract[ecomon_extract == 9999] <- NA
+
+#first split out x (environment) and y (species) to convert NAs to true 0s (because it is a survey)
+#select only species of interest
+ecomon_x <- ecomon_extract[c(1:12, 288:ncol(ecomon_extract))]
+ecomon_y <- ecomon_extract %>% select("hipobl_10m2","merbil_10m2","citarc_10m2")
+ecomon_y[is.na(ecomon_y)] <- 0 #NAs should be true 0s
+
+ecomon <- cbind(ecomon_x, ecomon_y)
+rm(ecomon_extract, ecomon_sp) #clean up our environment
+
+ecomon <- ecomon %>% dplyr::filter(year > 1998) #only use data after 1998 
+ecomon_ynames <- colnames(ecomon_y)
+
+#get rid of points that weren't in a stratum 
+ecomon <- ecomon %>% drop_na(Name)
+
+#histogram of SSTs
+ecomon %>% 
+  ggplot(aes(x=sfc_temp,binwidth = 0.5))+
+  geom_histogram(alpha=0.5,color="#F8766D",fill="#F8766D")+
+  theme(legend.position = "none")
+
+ecomon <- ecomon %>% mutate(temp_bin = round(sfc_temp*2)/2)
+
+temp_dist <- ecomon %>% group_by(temp_bin) %>% tally %>% 
+  mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples)
+
+#create long dataset of larval abundances for tidy manipulation 
+#around temp to nearest 0.5deg bin
+ecomon_long <- ecomon %>% pivot_longer(all_of(ecomon_ynames), names_to = "spp") %>% 
+  mutate(temp_bin = round(sfc_temp*2)/2)
+
+cdfs_ecomon<-c()
+for(i in 1:length(ecomon_ynames)){
+  sp <- ecomon_ynames[i]
+  ecomon_sp <- ecomon_long %>% filter(spp == sp)
+  sp_dist <- ecomon_sp %>% 
+    mutate(total = sum(value)) %>% 
+    group_by(temp_bin) %>% 
+    filter(is.na(temp_bin) == F) %>% 
+    mutate(prop_fish=sum(value)/total) %>% 
+    dplyr::select(temp_bin,prop_fish) %>% 
+    distinct()
+  larvae_niche<-left_join(temp_dist,sp_dist,by="temp_bin") %>% 
+    mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
+    mutate (niche = sqrt(prop_samples*prop_fish)) %>%
+    mutate(q = prop_fish/prop_samples) %>%
+    mutate(q_norm = q/sum(q)) %>%
+    mutate(cdf_q_norm = cumsum(q_norm)) %>%
+    mutate(spp = sp)
+  cdfs_ecomon <- rbind(cdfs_ecomon,larvae_niche)
+}
+
+#plot
+ggplot(cdfs_ecomon) +
+  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp),linewidth=1)+
+  scale_color_manual(labels = c("Gulfstream Flounder","Fourspot Flounder","Silver Hake"),
+                       values=c("#00BFC4","#00BA38","#F564E3"))
+```
+
+pull together with other results
+```{r}
+cdfs_ecomon$data<-"EcoMon"
+cdfs$data<-"Sarah"
+cdfs_lewis$data<-"Lewis"
+
+#use just egg data from NYOS
+cdfs_NYOS_eggs<-cdfs %>% filter(Stage == "Egg") %>% select(-Stage)
+
+#change names of spp to match
+cdfs_ecomon <- cdfs_ecomon %>% 
+  mutate(spp = ifelse(spp == "hipobl_10m2","Fourspot Flounder",
+                      ifelse(spp == "merbil_10m2","Silver Hake","Gulfstream Flounder")))
+
+cdfs_lewis <- cdfs_lewis %>% 
+  mutate(spp = ifelse(spp == "American fourspot flounder","Fourspot Flounder",
+                      ifelse(spp == "Silver hake","Silver Hake","Gulfstream Flounder")))
+
+cdfs_all<-rbind(cdfs_ecomon,cdfs_lewis,cdfs_NYOS_eggs) %>%
+  filter(spp %in% c("Silver Hake","Fourspot Flounder","Gulfstream Flounder"))
+
+ggplot(data=cdfs_all,aes(x=temp_bin,y=cdf_q_norm,linetype=data,color=spp))+
+  geom_line(linewidth=0.75)+
+  facet_wrap(~spp)+
+  scale_color_manual(values=c("#00BA38","#00BFC4","#F564E3"))+
+  guides(color="none")
+
+#also interested in just q
+cdfs_all %>%
+ggplot(aes(x=temp_bin,y=q,color=spp,linetype = data))+
+  geom_line()+
+  geom_hline(aes(yintercept = 1))+
+  facet_wrap(~spp)+
+  scale_color_manual(values=c("#00BA38","#00BFC4","#F564E3"))+
+  guides(color="none")
+
+#calculate niche breadth based on 10-90 quantile width
+spp_interest <- unique(cdfs_all$spp)
+data_sources <- unique(cdfs_all$data)
+quantiles <- c(0.05,0.95)
+niches<-c()
+for (k in 1:length(data_sources)) {
+  data_test <- data_sources[k]
+  for (j in 1:length(spp_interest)){
+    spp_test<-spp_interest[j]
+    test<- cdfs_all %>% filter(data == data_test & spp == spp_test)
+    for (i in 1:length(quantiles)){
+      quant<-quantiles[i]
+      temp<-test$temp_bin[which(abs(test$cdf_q_norm-quant) == min(abs(test$cdf_q_norm-quant)))]
+      out<-cbind(quant,temp,data_test,spp_test)
+      niches<-rbind(out,niches)
+    }
+  }
+}
+niches<-as.data.frame(niches)
+niches$temp<-as.numeric(niches$temp)
+
+#think this is weird because there are multiple minima
+niche_width <- niches %>% group_by(quant,data_test,spp_test) %>% dplyr::summarise(temp = mean(temp)) %>% ungroup() %>%
+  group_by(data_test,spp_test) %>% dplyr::summarise(width = max(temp)-min(temp))
+
+
+```
+

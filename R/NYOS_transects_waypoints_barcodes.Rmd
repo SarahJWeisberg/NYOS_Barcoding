@@ -32,67 +32,22 @@ fish_filter<- fish %>% select(c("Genus species","Common_Name","Cruise ID","Stati
 fish_filter<-fish_filter %>% rename("Waypoint" = "Station ID")
 fish_filter<-fish_filter %>% rename("Cruise" = "Cruise ID")
 fish_filter$Waypoint<-as.character(fish_filter$Waypoint)
-
-#Change "Atlantic Butterfish" and "Gulf Butterfish" to "Butterfish"
-# fish_filter<-fish_filter%>%
-#   mutate(Common_Name = replace(Common_Name,Common_Name == "Atlantic Butterfish" | Common_Name =="Gulf Butterfish", "Butterfish"))
-
-# #separate by cruise
-# spring_21<-filter(fish_filter,Cruise== 2105)
 # 
-# #separate eggs out
-# spring_21_eggs<-filter(spring_21, Stage == "Egg") %>% select(-"Stage")
-# 
-# #summarize eggs by station
-# spring_21_eggs<-count(spring_21_eggs, Waypoint, Common_Name) 
-# 
-# #separate larvae out
-# spring_21_larvae<-filter(spring_21, Stage == "Larva")  %>% select(-"Stage")
-# 
-# #summarize larvae by station
-# spring_21_larvae<-count(spring_21_larvae, Waypoint, Common_Name)
-
-#think there's a more efficient tidy way to do this
+# #summarize species counts by station and stage
 tallied<-fish_filter %>% group_by(Cruise,Stage,Waypoint,Common_Name) %>% tally()
 unique_sp<-fish_filter %>% group_by(Cruise,Stage) %>% summarize(count_sp = n_distinct(Common_Name))
 
-#load in all data, change Waypoint column to match above
-# all_stations<-read_csv(file = "NYOS2105_all.csv")
-# colnames(all_stations)[1]<-"Waypoint"
-# all_stations$Waypoint<-as.character(all_stations$Waypoint)
-# 
-# #remove 7.11 (extra sampling) - for now
-# all_stations<-all_stations[-40,]
-# #remove notes columns
-# all_stations<-all_stations[,c(1,3,4)]
-
+#pull out transect info - not sure this is needed
 study_area <- study_area %>% mutate(Transect = substr(Waypoint,1,1))
-
 
 stations <- study_area %>% filter(Transect != "C") %>% st_as_sf(coords = c("Longitude", "Latitude"), remove = FALSE) %>% st_set_crs(4326)
 
-#add in columns for eggs barcoded
-#remove NAs
-# eggs_map <- left_join(study_area,spring_21_eggs, by = "Waypoint")
-# #eggs_map[is.na(eggs_map)]<-0
-# eggs_map<-eggs_map[complete.cases(eggs_map),]
-# 
-# #add in columns for larvae barcoded
-# #remove NAs
-# larvae_map <- left_join(study_area,larvae, by = "Waypoint")
-# #eggs_map[is.na(eggs_map)]<-0
-# larvae_map<-larvae_map[complete.cases(larvae_map),]
-
-# #add in columns for all eggs & larvae found
-# all_map<-left_join(study_area,stations,by="Waypoint")
-# all_map[all_map == 0] <-NA
-
-#or - better way
+#merge with spatial info
 tallied <- left_join(tallied,study_area,by = "Waypoint")
 
-transects <- stations %>% filter(Transect %in% c(1:7)) %>% dplyr::group_by(Transect) %>%
-    dplyr::summarise(do_union=FALSE) %>%
-    sf::st_cast("LINESTRING")
+# transects <- stations %>% filter(Transect %in% c(1:7)) %>% dplyr::group_by(Transect) %>%
+#     dplyr::summarise(do_union=FALSE) %>%
+#     sf::st_cast("LINESTRING")
 
 ```
 
@@ -107,13 +62,13 @@ lapply(pkg, require, character.only=T)
 
 # #Call in coastline data
 # #This part of script converts the coastline shapefile into a cropped dataframe.
-if (!require(gpclib)) install.packages("gpclib", type="source")
-maptools::gpclibPermit()
+#if (!require(gpclib)) install.packages("gpclib", type="source")
+#maptools::gpclibPermit()
 # Load in Long Island Coastal Shapefile
 coastline <-raster::shapefile("data/GSHHS_f_L1_CLIPPED2LONGISLAND.shp")
 coast_sub <- raster::crop(coastline, raster::extent(-74.5, -71.0, 38.25, 41.5)) # crop to study site
 coast_sub@data$id <- rownames(coast_sub@data) # make some rownames
-coast_sub <- sf::st_as_sf(coast_sub, region = "id") # fortify
+#coast_sub <- sf::st_as_sf(coast_sub, region = "id") # fortify
 # ####################
 # #Call in bathymetric data
 # #This part of script converts the bathymetric contours and accompanying data into a cropped dataframe. 
@@ -126,7 +81,7 @@ bathydf$col <- factor(bathydf$col, levels=c("a",""))
 # #This part of script helps to properly overlay the coastline data on the background bathymetric layer since `marmap` can only provide very
 # #coarse coastline resolution. 
 bathy_sea <- bathydf; bathy_sea$V3[bathy_sea$V3 > 1] <- NA
-coast_fort <- fortify.map(coast_sub)
+#coast_fort <- fortify.map(coast_sub)
 coast_fort <- coast_sub
 # ####################
 # #Generate basemap
