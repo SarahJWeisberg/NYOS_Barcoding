@@ -38,9 +38,7 @@ library(readxl) #reading
 library(here)
 
 #modeling
-library(ggfortify) #pca analysis
 library(rstatix) #modeling with tidy
-library(tweedie) #tweedie distribution
 library(glmmTMB)#mixed models 
 
 
@@ -80,6 +78,28 @@ load in the data
 accession date: May 6, 2024
 ```{r}
 ecomon <- read.csv(here("data/EcoMon_Data/EcoMon_Plankton_Data_v3_8.csv"))
+#deal with butterfish
+butterfish_raw <- read_xlsx(here("data/DatasetExplanation_Peprilus_May2024.xlsx"))
+
+butterfish <- butterfish_raw %>% mutate(cruise_station = paste(CRUISE_NAME,STATION, sep = "_"))
+butterfish <- butterfish %>% select(cruise_station,TAXA_ICHTHYO,ABUNDANCE)
+butterfish <- butterfish %>% group_by(cruise_station) %>% 
+  mutate(pep_sp = sum(ABUNDANCE[which(TAXA_ICHTHYO == 170511100)])) %>%
+  mutate(pep_par = sum(ABUNDANCE[which(TAXA_ICHTHYO == 170511101)])) %>%
+  mutate(pep_tri = sum(ABUNDANCE[which(TAXA_ICHTHYO >= 170511102)])) %>%
+  mutate(pep_tri = replace(pep_tri, is.na(pep_tri), 0)) %>%
+  select(cruise_station,pep_par,pep_sp,pep_tri) %>%
+  unique
+
+butterfish <- butterfish %>% mutate(pep_all = pep_tri+pep_sp+pep_par)
+
+#check prorportion of abundance that is pep_tri
+sum(butterfish$pep_tri)/(sum(butterfish$pep_tri)+sum(butterfish$pep_par))
+
+#merge butterfish with rest
+ecomon <- ecomon %>% mutate(cruise_station = paste(cruise_name,station, sep = "_"))
+
+ecomon <- left_join(ecomon,butterfish,by="cruise_station")
 ```
 
 
@@ -226,18 +246,18 @@ Here we convert NAs to true 0s and select only data after 1998. The processing o
 
 ##2.1 adding columns
 ```{r}
-ecomon_extract[ecomon_extract == 9999] <- NA
+ecomon[ecomon == 9999] <- NA
 
 #first split out x (environment) and y (species) to convert NAs to true 0s (because it is a survey)
 #select only species of interest
-ecomon_x <- ecomon_extract[c(1:12, 288:ncol(ecomon_extract))]
-ecomon_y <- ecomon_extract %>% select("hipobl_10m2","merbil_10m2","citarc_10m2")
+ecomon_x <- ecomon %>% dplyr::select(cruise_station,sfc_temp)
+ecomon_y <- ecomon %>% select("hipobl_10m2","merbil_10m2","citarc_10m2","pep_tri")
 ecomon_y[is.na(ecomon_y)] <- 0 #NAs should be true 0s
 
 ecomon <- cbind(ecomon_x, ecomon_y)
-rm(ecomon_extract, ecomon_sp) #clean up our environment
+ecomon <- ecomon %>% filter(!is.na(sfc_temp))
 
-ecomon <- ecomon %>% dplyr::filter(year > 1998) #only use data after 1998 
+#ecomon <- ecomon %>% dplyr::filter(year > 1998) #only use data after 1998 
 ecomon_ynames <- colnames(ecomon_y)
 
 #get rid of points that weren't in a stratum 
@@ -280,11 +300,13 @@ for(i in 1:length(ecomon_ynames)){
   cdfs_ecomon <- rbind(cdfs_ecomon,larvae_niche)
 }
 
+cdfs_ecomon <- cdfs_ecomon %>% filter(!is.na(temp_bin))
 #plot
 ggplot(cdfs_ecomon) +
   geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp),linewidth=1)+
-  scale_color_manual(labels = c("Gulfstream Flounder","Fourspot Flounder","Silver Hake"),
-                       values=c("#00BFC4","#00BA38","#F564E3"))
+  facet_wrap(~spp)
+  #scale_color_manual(labels = c("Gulfstream Flounder","Fourspot Flounder","Silver Hake"),
+                       #values=c("#00BFC4","#00BA38","#F564E3"))
 ```
 
 pull together with other results
@@ -315,12 +337,12 @@ ggplot(data=cdfs_all,aes(x=temp_bin,y=cdf_q_norm,linetype=data,color=spp))+
   guides(color="none")
 
 #also interested in just q
-cdfs_all %>%
-ggplot(aes(x=temp_bin,y=q,color=spp,linetype = data))+
+cdfs_ecomon %>%
+ggplot(aes(x=temp_bin,y=q,color=spp))+
   geom_line()+
   geom_hline(aes(yintercept = 1))+
   facet_wrap(~spp)+
-  scale_color_manual(values=c("#00BA38","#00BFC4","#F564E3"))+
+  #scale_color_manual(values=c("#00BA38","#00BFC4","#F564E3"))+
   guides(color="none")
 
 #calculate niche breadth based on 10-90 quantile width
