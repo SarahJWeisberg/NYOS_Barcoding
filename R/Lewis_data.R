@@ -153,12 +153,12 @@ spp<-egg_estimates %>% group_by(Common_Name) %>% mutate(total=sum(est)) %>%
   dplyr::select(Common_Name,total) %>% distinct()
 high_abd_spp<-spp %>% ungroup() %>% slice_max(total,n=8)
 
-#or select 3 species of interest
-spp_interest<-c("Silver hake","American fourspot flounder","Gulf Stream flounder")
+#or select 4 species of interest
+spp_interest<-c("Silver hake","American fourspot flounder","Gulf Stream flounder", "Atlantic butterfish")
 
 cdfs_lewis<-c()
-for(i in 1:length(high_abd_spp$Common_Name)){
-  sp <- high_abd_spp$Common_Name[i]
+for(i in 1:length(spp_interest)){
+  sp <- spp_interest[i]
   eggs_sp <- egg_estimates %>% filter(Common_Name == sp)
   #round temp to nearest 0.5deg bin
   eggs_sp <- eggs_sp %>% mutate(temp_bin = round(SST*2)/2)
@@ -176,8 +176,12 @@ for(i in 1:length(high_abd_spp$Common_Name)){
 }
 
 #plot results
-ggplot(cdfs_lewis) +
-  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp))
+cdfs_lewis %>% filter(spp %in% spp_interest) %>%
+ggplot() +
+  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp))+
+  #geom_hline(yintercept = 1)+
+  facet_wrap(~spp)+
+  theme(legend.position = "none")
 
 #fourspot
 fourspot<-cdfs_lewis %>% filter(spp == "American fourspot flounder")
@@ -364,4 +368,46 @@ hist(silver$temp,prob=T)
 lines(dpois(0:max(silver.count$temp.round),lambda = fit$estimate[1]),col="red")
 lines(dnorm(0:max(silver.count$temp.round),mean = fit2$estimate[1],sd=fit2$estimate[2]),col="magenta")
 lines(dnbinom(0:max(silver.count$temp.round),size = fit3$estimate[1],mu=fit3$estimate[2]),col="blue")
+
+
+# bootstrapping -----------------------------------------------------------
+#need db_trim
+silver_boot <- egg_estimates %>% filter(Common_Name == "Silver hake") %>% ungroup() %>% 
+  dplyr::select(cruise_station,est) 
+silver_boot <- left_join(db_trim,silver_boot,by="cruise_station") %>% 
+  mutate(est = replace(est,is.na(est),0)) %>%
+  dplyr::select(cruise_station,SST,est)
+
+#bootstrapping runs
+boot<-1000
+station_n<-length(silver_boot$cruise_station)
+boot_out<-c()
+for (j in 1:boot){
+  newdata<-as.data.frame(matrix(nrow = station_n,ncol=ncol(silver_boot)))
+  for(i in 1:station_n){
+    rownums<-sample(1:station_n,length(station_n),replace = T) 
+    newdata[i,]<-silver_boot[rownums,]
+  }
+  colnames(newdata)<-c("cruise_station","SST","est")
+  newdata <- newdata %>% mutate(temp_bin = round(SST*2)/2)
+  newdata_temp <- newdata %>% group_by(temp_bin) %>% tally() %>% rename(n_samples = n)
+  newdata <- newdata %>% group_by(temp_bin) %>% mutate(n_fish = sum(est)) %>%
+    dplyr::select(temp_bin,n_fish) %>% unique()
+  newdata<-left_join(newdata,newdata_temp,by="temp_bin")
+  new_q <- newdata %>% ungroup() %>% mutate(q = (n_fish/sum(n_fish)/(n_samples/sum(n_samples)))) %>% 
+    dplyr::select(temp_bin,q)
+  boot_out<-rbind(boot_out,new_q)
+}
+
+#get 5,95 CI
+boot_summary <- boot_out %>% group_by(temp_bin) %>% 
+  summarise(lower_CI = quantile(q,0.05),upper_CI = quantile(q,0.95)) 
+
+silver_q<-cdfs_lewis %>% filter(spp=="Silver hake")
+
+boot_summary %>%
+  ggplot(aes(x=temp_bin))+
+  geom_hline(yintercept = 1,linetype="dashed")+
+  geom_point(data=silver_q,aes(x=temp_bin,y=q),color="magenta")+
+  geom_errorbar(aes(ymin = lower_CI,ymax =upper_CI))
 

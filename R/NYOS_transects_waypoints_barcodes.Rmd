@@ -89,26 +89,26 @@ coast_fort <- coast_sub
 # #This part of the script is broken up by comments explaining the function of each part. Edit accordingly. 
 basemap <- ggplot() + 
   #This creates bathymetric raster layer; smooth interpolation
-  geom_raster(data=bathy_sea, aes(x=V1, y=V2, fill=V3)) +
+  geom_raster(data=bathy_sea, aes(x=V1, y=V2),fill="#e8f0f8") +
   #   #This creates bathymetric contour lines at: 50, 100, 500, 1000, 2000, and 3000 m depth thresholds
   geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3), 
-               breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black") +
+              breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black") +
   #   #This creates coastline polygons
   geom_polygon(data=coast_fort, aes(x=long, y=lat, group=group), fill="gray60", color="black") +
   #   #This normalizes the x- and y-axes so there aren't any funky empty white space between the axis edges and the actual plot
   coord_equal(expand=FALSE, ylim=c(38.25, 41.5), xlim=c(-74.5, -71)) +
   #   #Set latitudinal axis breaks to look prettier
-  scale_y_continuous(breaks=c(39,40,41)) +
-  scale_x_continuous(breaks = c(-74,-73,-72,-71))+
-  #   #Set bathymetric gradient breaks
-  scale_fill_gradient(limits=c(-3500,0), na.value="#daedf7", low="#586575", high="#daedf7",
-                      breaks=c(-500,-1500,-2500,-3500), labels=c(500,1500,2500,3500)) +
+  # scale_y_continuous(breaks=c(39,40,41)) +
+  # scale_x_continuous(breaks = c(-74,-73,-72,-71))+
+  # #   #Set bathymetric gradient breaks
+  # scale_fill_gradient(limits=c(-3500,0), na.value="#daedf7", low="#586575", high="#daedf7",
+  #                     breaks=c(-500,-1500,-2500,-3500), labels=c(500,1500,2500,3500)) +
   #   #Label axes
   labs(x=expression(paste("Longitude (",degree,"W)")),
-       y=expression(paste("Latitude (",degree,"N)")),
-       fill="Depth (m)") + 
+       y=expression(paste("Latitude (",degree,"N)")))+
+       #fill="Depth (m)") + 
   #   #Setting some plotting parameters, like text size and background color
-  theme_bw() +
+  theme_minimal() +
   theme(text=element_text(size=10), axis.text=element_text(size=10, color="black"),
         strip.background=element_blank(), strip.text=element_blank(),
         plot.margin = unit(c(0, 0, 0, 0), "cm"),
@@ -121,11 +121,11 @@ basemap <- ggplot() +
  # ggsn::north(x.min=-74.5, x.max=-73.9, y.min=41, y.max=41.3, scale=1, symbol=3) +
   #Label bathymetric contours
   geom_text(aes(x=x, y=y, label=text),
-            data=data.frame(x=c(rep(-71.23,3),rep(-71.28,2)), 
-                            y=c(40.925, 40.025, 39.875, 39.75,39.55), 
+            data=data.frame(x=c(rep(-71.23,3),rep(-71.28,2)),
+                            y=c(40.925, 40.025, 39.875, 39.75,39.55),
                             text=c("50 m","100 m","500 m","1000 m","2000 m")),
-            color=c(rep("black",1),rep("white",4)),size=3)+
-  guides(fill="none")
+            color=c(rep("black",1),rep("white",4)),size=3)
+  # guides(fill="none")
 
 basemap
 ```
@@ -256,3 +256,49 @@ l<-basemap+
   
 l
 ```
+#3. Summary map for data paper
+```{r}
+station_data<-read.csv("Station_Info - Corrected.csv")
+
+station_data <- station_data %>% filter(!Haul_ID %in% c("E01B","E25B"))
+cruises<-unique(station_data$Cruise_ID)
+
+station_data_clean <- station_data %>% 
+  select(Cruise_ID,Station_ID,Latitude,Longitude) %>%
+  mutate(season = substring(Cruise_ID,4)) %>%
+  group_by(Station_ID) %>%
+  mutate(mean_lat = mean(Latitude), mean_lon = mean(Longitude)) 
+
+station_locations<- station_data_clean %>% select(Station_ID,mean_lat,mean_lon)
+
+station_data_summary <- station_data_clean %>% 
+  group_by(Station_ID,season) %>%
+  tally() %>%
+  ungroup() %>%
+  group_by(Station_ID) %>%
+  mutate(total = sum(n))
+
+station_data_summary<-station_data_summary %>% 
+  pivot_wider(names_from = season,values_from = n) %>%
+  mutate(across(where(is.numeric),~replace_na(.,0)))
+
+station_data_summary <- left_join(station_data_summary,station_locations, by = "Station_ID") 
+station_data_summary <- station_data_summary %>%
+  mutate(mean_lon = -(mean_lon))
+
+station_data_summary <- station_data_summary %>% distinct() %>%
+  rename("Spring"="5","Winter"="2","Summer"="7","Fall"="9")
+
+s<- basemap +
+   geom_scatterpie(data= station_data_summary, 
+                   aes(x=mean_lon, y=mean_lat, r =0.02*total),
+                   cols=c("Spring","Summer","Fall","Winter"),linewidth=0.1,
+                   legend_name = "Season")
+s
+ggplot()+
+   geom_scatterpie(data= station_data_summary, 
+                   aes(x=mean_lon, y=mean_lat, r =0.015*total),cols=c("5","2","7","9"),color=NA,alpha=0.8)
+basemap
+
+```
+

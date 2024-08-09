@@ -74,14 +74,16 @@ theme_Publication <- function(base_size=10, base_family="Arial") {
 
 select <- dplyr::select
 ```
-load in the data 
+#1 load in the data 
 accession date: May 6, 2024
 ```{r}
 ecomon <- read.csv(here("data/EcoMon_Data/EcoMon_Plankton_Data_v3_8.csv"))
 #deal with butterfish
 butterfish_raw <- read_xlsx(here("data/DatasetExplanation_Peprilus_May2024.xlsx"))
 
-butterfish <- butterfish_raw %>% mutate(cruise_station = paste(CRUISE_NAME,STATION, sep = "_"))
+#get rid of leading zeros in station column
+butterfish <- butterfish_raw %>% mutate(station = round(as.numeric(STATION))) %>% 
+  mutate(cruise_station = paste(CRUISE_NAME,station, sep = "_"))
 butterfish <- butterfish %>% select(cruise_station,TAXA_ICHTHYO,ABUNDANCE)
 butterfish <- butterfish %>% group_by(cruise_station) %>% 
   mutate(pep_sp = sum(ABUNDANCE[which(TAXA_ICHTHYO == 170511100)])) %>%
@@ -100,149 +102,12 @@ sum(butterfish$pep_tri)/(sum(butterfish$pep_tri)+sum(butterfish$pep_par))
 ecomon <- ecomon %>% mutate(cruise_station = paste(cruise_name,station, sep = "_"))
 
 ecomon <- left_join(ecomon,butterfish,by="cruise_station")
-```
-
-
-Convert date to a date column using lubridate
-```{r}
-#convert data and create year, month, day columns: 
-
-ecomon$date <- as.Date(ecomon$date, format =  "%d-%b-%y") #b here is the code for month when its words 
-ecomon$month <- month(ecomon$date)
-ecomon$year <- year(ecomon$date)
-ecomon$day <- day(ecomon$date)
-
-ecomon$ID_points <- as.character(rownames(ecomon))
-```
-
-
-
-#1 combine with the strata dataset 
-the ecomon data is collected as abundance per m2 and collected within each stratum every two months, so we need to know the stratum area to get out raw average abundance. Some strata are sampled more than once a cruise
-
-average abd/m2 per stratum * area of each stratum = raw abundance
-
-##1.1 stratum data 
-plot the stratum data and points 
-```{r}
-#load stratum
-stratum <- read_sf(here("data/EcoMon_Data/EcomonStrata_v4b.shp"))
-
-#you may have a validity issue - can check with sf::st_is_valid()
-stratum <- sf::st_buffer(stratum, 0)
-
-#plot three different ways to get a sense of what it looks like
-plot(stratum)
-plot(st_geometry(stratum), col = sf.colors(12, categorical = TRUE), border = 'grey', 
-     axes = TRUE)
-
-plot(stratum["Name"], col = sf.colors(12, categorical = TRUE), border = 'grey', 
-     axes = TRUE)
-
-st_crs(stratum) = 4326 #this is WGS 1984
-
-#make ecomon spatial with the same defined coordinate system
-ecomon_sp <- st_as_sf(x = ecomon, 
-                      coords = c("lon", "lat"),
-                      crs = 4326)
-
-
-
-#checkit that the stratum and ecomon data overlap with ggplot
-ggplot() + geom_sf(data = world) + 
-  geom_sf(data = stratum, fill = NA, colour = "red") + 
-  geom_sf(data = subset(ecomon_sp, ecomon_sp$year ==1997), size = .2) + 
-  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
-  theme(panel.background = element_rect(fill = "white", colour = "black"),
-        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
-                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
-                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
-  ggtitle("Ecomon Data", subtitle ="1997")
-
-
-#make sure the stratum area information is valid 
-ggplot() + geom_sf(data = world) + 
-  geom_sf(data = stratum, aes(fill = Area)) + 
-  geom_sf(data = subset(ecomon_sp, ecomon_sp$year ==1997), size = .2) + 
-  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
-  theme(panel.background = element_rect(fill = "white", colour = "black"),
-        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
-                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
-                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
-  ggtitle("Ecomon Data", subtitle ="Area")
-
+missing <- which(!butterfish$cruise_station %in% ecomon$cruise_station)
 
 ```
 
-
-##1.2 extract stratum values to points
-note - there are 270 points that are outside of the strata 
-```{r}
-#get a spherical geometry error - need to follow these steps or use sf_use_s2(FALSE): https://stackoverflow.com/questions/68478179/how-to-resolve-spherical-geometry-failures-when-joining-spatial-data
-sf::sf_use_s2(FALSE)
-
-#intersection 
-ecomon_extract <- st_intersection(ecomon_sp, stratum)
-
-inside_test <- ecomon_extract
-inside_test$inside <- "yes"
-
-#make sure those points that we lost were actually outside of the study region 
-diff_test <- left_join(ecomon, inside_test, by = "ID_points")
-
-ggplot() + geom_sf(data = world) + 
-  geom_sf(data = stratum, fill = NA, colour = "red") + 
-  geom_point(data = subset(diff_test, is.na(diff_test$inside)), size = .2, aes(x = lon, y = lat)) + 
-  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
-  theme(panel.background = element_rect(fill = "white", colour = "black"),
-        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
-                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
-                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
-  ggtitle("Ecomon Data", subtitle ="these points are outside")
-
-#this tells us that 270 points are outside of the strata
-
-
-#get out the coordinate information 
-ecomon_coords <- ecomon_extract %>% st_coordinates() 
-ecomon_extract <- cbind(ecomon_extract, ecomon_coords)
-
-#convert it to a data frame because we will be doing calculations down the road that will slow down if the geometry is still there 
-ecomon_extract <- ecomon_extract %>% st_drop_geometry()
-ecomon_extract <- ecomon_extract %>% dplyr::rename(lon = X, lat = Y) #rename for later 
-
-
-#plotit to make sure all of the overlapping ecomon points are colored by stratum
-ggplot() + geom_sf(data = world) + 
-  geom_sf(data = stratum, fill = NA, aes(group = as.factor(Name), colour = as.factor(Name))) + #adding in group = Name makes ggplot know how to group the spatial object
-  geom_point(data = subset(ecomon_extract, ecomon_extract$year ==1997), aes(x = lon, y = lat, colour = as.factor(Name)), size = .2) + 
-  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
-  theme(panel.background = element_rect(fill = "white", colour = "black"),
-        legend.position="bottom",
-        legend.title=element_blank(),
-        plot.title = element_text(hjust = 0.5)) + 
-  labs(y = element_blank(), x = element_blank()) + 
-  ggtitle("Ecomon Data", subtitle ="1997")+ guides(color = guide_legend(override.aes = list(size = 0.5))) + guides(col = guide_legend(nrow = 2))
-
-
-
-
-ggplot() + geom_sf(data = world) + 
-  geom_sf(data = stratum, fill = NA, colour = "red") + 
-  geom_sf(data = ecomon_sp, size = .2) + 
-  coord_sf(xlim=c(-80, -65), ylim=c(34,46), expand = TRUE)+ 
-  theme(panel.background = element_rect(fill = "white", colour = "black"),
-        legend.title=element_blank())+ labs(y = element_blank(), x = element_blank(),
-                                            plot.title = element_text(hjust = 0.5))+ theme(legend.position="bottom", 
-                                                                                           legend.title = element_blank())+ guides(colour = guide_legend(override.aes = list(size=6))) + 
-  ggtitle("Ecomon Data", subtitle ="all")
-
-```
 
 #2 tidy the data
-now that we have a beautiful dataset, lets tidy it up.
-
-Here we convert NAs to true 0s and select only data after 1998. The processing of ichthyoplankton from the EcoMon cruises only began in 1999, after the end of GLOBEC, but in recent years selected cruises from the earlier period have been processed (https://doi.org/10.1093/icesjms/fsp276)
 
 ##2.1 adding columns
 ```{r}
@@ -250,18 +115,19 @@ ecomon[ecomon == 9999] <- NA
 
 #first split out x (environment) and y (species) to convert NAs to true 0s (because it is a survey)
 #select only species of interest
-ecomon_x <- ecomon %>% dplyr::select(cruise_station,sfc_temp)
+ecomon_x <- ecomon %>% dplyr::select(cruise_station,sfc_temp, lat, lon, date)
 ecomon_y <- ecomon %>% select("hipobl_10m2","merbil_10m2","citarc_10m2","pep_tri")
 ecomon_y[is.na(ecomon_y)] <- 0 #NAs should be true 0s
 
 ecomon <- cbind(ecomon_x, ecomon_y)
 ecomon <- ecomon %>% filter(!is.na(sfc_temp))
+# 
+# ecomon$date <- as.Date(ecomon$date, format =  "%d-%b-%y") #b here is the code for month when its words 
+# ecomon$month <- month(ecomon$date)
+# ecomon$year <- year(ecomon$date)
+# ecomon$day <- day(ecomon$date)
 
-#ecomon <- ecomon %>% dplyr::filter(year > 1998) #only use data after 1998 
 ecomon_ynames <- colnames(ecomon_y)
-
-#get rid of points that weren't in a stratum 
-ecomon <- ecomon %>% drop_na(Name)
 
 #histogram of SSTs
 ecomon %>% 
@@ -272,7 +138,7 @@ ecomon %>%
 ecomon <- ecomon %>% mutate(temp_bin = round(sfc_temp*2)/2)
 
 temp_dist <- ecomon %>% group_by(temp_bin) %>% tally %>% 
-  mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples)
+  mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples,n)
 
 #create long dataset of larval abundances for tidy manipulation 
 #around temp to nearest 0.5deg bin
@@ -307,6 +173,73 @@ ggplot(cdfs_ecomon) +
   facet_wrap(~spp)
   #scale_color_manual(labels = c("Gulfstream Flounder","Fourspot Flounder","Silver Hake"),
                        #values=c("#00BFC4","#00BA38","#F564E3"))
+
+#or
+ggplot(cdfs_ecomon) +
+  geom_line(aes(x=temp_bin,y=q,color=spp),linewidth=1)+
+  geom_hline(yintercept = 1)+
+  facet_wrap(~spp)
+
+butter_cdf<-cdfs_ecomon %>% filter(spp=="pep_tri")
+```
+#3 bootstrapping
+```{r}
+butter_boot<-ecomon_long %>% filter(spp=="pep_tri") %>%
+  dplyr::select(cruise_station,sfc_temp,value)
+
+#bootstrapping runs
+boot<-100
+station_n<-length(butter_boot$cruise_station)
+boot_out<-c()
+for (j in 1:boot){
+  newdata<-as.data.frame(matrix(nrow = station_n,ncol=ncol(butter_boot)))
+  for(i in 1:station_n){
+    rownums<-sample(1:station_n,length(station_n),replace = T) 
+    newdata[i,]<-butter_boot[rownums,]
+  }
+  colnames(newdata)<-c("cruise_station","SST","value")
+  newdata <- newdata %>% mutate(temp_bin = round(SST*2)/2)
+  newdata_temp <- newdata %>% group_by(temp_bin) %>% tally() %>% rename(n_samples = n)
+  newdata <- newdata %>% group_by(temp_bin) %>% mutate(n_fish = sum(value)) %>%
+    dplyr::select(temp_bin,n_fish) %>% unique()
+  newdata<-left_join(newdata,newdata_temp,by="temp_bin")
+  new_q <- newdata %>% ungroup() %>% mutate(q = (n_fish/sum(n_fish)/(n_samples/sum(n_samples)))) %>% 
+    dplyr::select(temp_bin,q)
+  new_q$run_num<-j 
+  boot_out<-rbind(boot_out,new_q)
+}
+
+#get 5,95 CI
+boot_summary <- boot_out %>% group_by(temp_bin) %>% 
+  summarise(lower_CI = quantile(q,0.05),upper_CI = quantile(q,0.95)) 
+
+silver_q<-cdfs_ecomon %>% filter(spp=="merbil_10m2")
+
+boot_summary %>%
+  ggplot(aes(x=temp_bin))+
+  geom_hline(yintercept = 1,linetype="dashed")+
+  geom_point(data=butter_cdf,aes(x=temp_bin,y=q),color="magenta")+
+  geom_errorbar(aes(ymin = lower_CI,ymax =upper_CI))
+
+#think about estimating thermal breadth from each run instead
+#remove any q's less than 1
+boot_range <- boot_out %>% filter(q >=1) %>%
+  group_by(run_num) %>% 
+  summarise(lower = min(temp_bin),upper = max(temp_bin)) %>%
+  mutate(range = upper-lower)
+```
+
+#4. modeling
+```{r}
+test_glm<-glm(data=butter_cdf,formula=cdf_q_norm~temp_bin, family = "quasibinomial")
+test_predictors<-list(temp_bin=seq(min(temp_dist$temp_bin), max(temp_dist$temp_bin),0.5))
+glm_vals <- predict(test_glm, newdata=test_predictors, type = "response")
+glm_predict <- data.frame(temp = test_predictors[[1]], prop = glm_vals)
+ggplot(data=glm_predict, aes(x=temp,y=prop))+
+  geom_line()+
+  geom_line(data=butter_cdf,aes(x=temp_bin,y=cdf_q_norm),color="magenta")
+  
+  
 ```
 
 pull together with other results
