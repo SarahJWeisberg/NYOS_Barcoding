@@ -1,17 +1,18 @@
-#Code to calculate thermal niches of fish eggs 
-#from EcoMon survey program & barcoding results reported in Lewis et al (2016)
+#data prep for SPQ analysis
+#data = fish egg species ID from DNA barcoding & temp from CTD casts
+#samples from EcoMon survey program
+#barcoding results as reported in Lewis et al (2016)
 
-# Mon Jan 15 10:36:51 2024 ------------------------------
+# Fri Aug  9 13:52:27 2024 ------------------------------
+
 
 # prep --------------------------------------------------------------------
 #load packages
 library(readxl)
 library(dplyr)
 library(tidyr)
-library(MASS)
 library(here)
 library(ggplot2)
-library(rio)
 
 # Load and tidy data ------------------------------------------------------
 #Load station data from subset of stations with ethanol-preserved samples
@@ -138,276 +139,16 @@ egg_estimates <- left_join(egg_estimates,haul,by="cruise_station") %>% filter(is
 #multiply count by haul factor to get estimates normalized for effort
 egg_estimates <- egg_estimates %>% mutate(est=tot*IHF)
 
-# Analysis ----------------------------------------------------------------
-#what might niche breadth be?
-#establish a column that is rounded to nearest 0.5degC
-#based on Asch & Erisman, 2018
+#bin temperature into 0.5degC bins
 db_trim <- db_trim %>% mutate(temp_bin = round(SST*2)/2)
 #tally, calculate proportion
-temp_dist <- db_trim %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
+temp_dist_lewis <- db_trim %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
   mutate(total=sum(n),prop_samples=n/total) %>% dplyr::select(temp_bin,prop_samples)
 
-# species-specific analyses -----------------------------------------------
-#get cdf plots for several species of interest
-spp<-egg_estimates %>% group_by(Common_Name) %>% mutate(total=sum(est)) %>% 
-  dplyr::select(Common_Name,total) %>% distinct()
-high_abd_spp<-spp %>% ungroup() %>% slice_max(total,n=8)
-
-#or select 4 species of interest
-spp_interest<-c("Silver hake","American fourspot flounder","Gulf Stream flounder", "Atlantic butterfish")
-
-cdfs_lewis<-c()
-for(i in 1:length(spp_interest)){
-  sp <- spp_interest[i]
-  eggs_sp <- egg_estimates %>% filter(Common_Name == sp)
-  #round temp to nearest 0.5deg bin
-  eggs_sp <- eggs_sp %>% mutate(temp_bin = round(SST*2)/2)
-  eggs_sp_dist <- eggs_sp %>% mutate(total = sum(est,na.rm=T)) %>% 
-    group_by(temp_bin) %>% filter(is.na(temp_bin) == F) %>% 
-    mutate(prop_fish=sum(est)/total) %>% dplyr::select(temp_bin,prop_fish) %>% distinct()
-  eggs_niche<-left_join(temp_dist,eggs_sp_dist,by="temp_bin") %>% 
-    mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-    mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-    mutate(q = prop_fish/prop_samples) %>%
-    mutate(q_norm = q/sum(q)) %>%
-    mutate(cdf_q_norm = cumsum(q_norm)) %>%
-    mutate(spp = sp)
-  cdfs_lewis <- rbind(cdfs_lewis,eggs_niche)
-}
-
-#plot results
-cdfs_lewis %>% filter(spp %in% spp_interest) %>%
-ggplot() +
-  geom_line(aes(x=temp_bin,y=cdf_q_norm,color=spp))+
-  #geom_hline(yintercept = 1)+
-  facet_wrap(~spp)+
-  theme(legend.position = "none")
-
-#fourspot
-fourspot<-cdfs_lewis %>% filter(spp == "American fourspot flounder")
-#Look at one species = silver hake
-silver<- egg_estimates %>% filter(Common_Name == "Silver hake")
-max(silver$SST,na.rm = T) - min(silver$SST,na.rm = T)
-quantile(silver$SST,0.9,na.rm = T) - quantile(silver$SST,0.1,na.rm = T)
-
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_line(data=silver,aes(x=SST,y=est),color="black")
-
-#apply to silver
-silver <- silver %>% mutate(temp_bin = round(SST*2)/2)
-silver_dist <- silver %>% mutate(total = sum(est,na.rm=T)) %>% 
-  group_by(temp_bin) %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(prop_fish=sum(est)/total) %>% dplyr::select(temp_bin,prop_fish) %>% distinct()
-
-ggplot() +
-  geom_line(data=silver_dist,aes(x=temp_bin,y=prop_fish))
-
-silver_niche<-left_join(temp_dist,silver_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-ggplot(silver_niche) +
-  geom_line(aes(x=temp_bin,y=cdf_q_norm),color="magenta")
-  # geom_vline(xintercept = 13.75, color= "black")+
-  # geom_vline(xintercept = 18.25, color= "black")
-#geom_line(data=cod_niche,aes(x=temp_bin,y=cdf_q_norm),color="navy")
-
-ggplot(silver_niche) +
-  geom_line(aes(x=temp_bin,y=q_norm),color="magenta")
-
-  
-
-silver_NB <- sum(silver_niche$niche)
-
-
-#Look at one species = silver hake (old way)
-silver<- egg_temp %>% filter(Common_Name == "Silver hake")
-max(silver$SST,na.rm = T) - min(silver$SST,na.rm = T)
-quantile(silver$SST,0.95,na.rm = T) - quantile(silver$SST,0.05,na.rm = T)
-
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_histogram(data=silver,aes(x=SST),binwidth = 0.5, alpha=0.5,color="black")
-
-#apply to silver
-silver <- silver %>% mutate(temp_bin = round(SST*2)/2)
-silver_dist <- silver %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
-
-silver_niche<-left_join(temp_dist,silver_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-ggplot(silver_niche) +
-  geom_line(aes(x=temp_bin,y=cdf_q_norm),color="magenta")+
-  
-ggplot()+
-  geom_line(data=gs_flounder_niche,aes(x=temp_bin,y=cdf_q_norm),color="navy")
-
-silver_NB <- sum(silver_niche$niche)
-
-#apply to Gulf stream flounder
-gs_flounder<- egg_estimates %>% filter(Common_Name == "Gulf Stream flounder")
-max(gs_flounder$SST,na.rm = T) - min(gs_flounder$SST,na.rm = T)
-quantile(gs_flounder$SST,0.95,na.rm = T) - quantile(gs_flounder$SST,0.05,na.rm = T)
-
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_line(data=gs_flounder,aes(x=SST,y=est),color="black")
-
-#apply to gs_flounder
-gs_flounder <- gs_flounder %>% mutate(temp_bin = round(SST*2)/2)
-gs_flounder_dist <- gs_flounder %>% mutate(total = sum(est,na.rm=T)) %>% 
-  group_by(temp_bin) %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(prop_fish=sum(est)/total) %>% dplyr::select(temp_bin,prop_fish) %>% distinct()
-
-ggplot(data=gs_flounder_dist, aes(x=temp_bin,y=prop_fish))+
-  geom_line()
-
-gs_flounder_niche<-left_join(temp_dist,gs_flounder_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-ggplot() +
-  geom_line(data=gs_flounder_niche,aes(x=temp_bin,y=q_norm),color= "navy")
-
-ggplot() +
-  geom_line(data=gs_flounder_niche,aes(x=temp_bin,y=cdf_q_norm),color= "navy")+
-  geom_vline(xintercept = 16.5) +
-  geom_vline(xintercept = 25.5)
-
-#old way
-gs_flounder<-egg_temp %>% filter(Common_Name == "Gulf Stream flounder")
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_histogram(data=gs_flounder,aes(x=SST),binwidth = 0.5, alpha=0.5,color="black")
-
-#max-min
-max(gs_flounder$SST,na.rm = T) - min(gs_flounder$SST,na.rm = T)
-#90 CI
-quantile(gs_flounder$SST,0.95,na.rm = T) - quantile(gs_flounder$SST,0.05,na.rm = T)
-
-gs_flounder <- gs_flounder %>% mutate(temp_bin = round(SST*2)/2)
-gs_flounder_dist <- gs_flounder %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
-
-gs_flounder_niche<-left_join(temp_dist,gs_flounder_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish))%>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-gs_flounder_NB <- sum(gs_flounder_niche$niche)
-
-#apply to yellowtail flounder
-yt_flounder<-egg_temp %>% filter(Common_Name == "Yellowtail flounder")
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_histogram(data=yt_flounder,aes(x=SST),binwidth = 0.5, alpha=0.5,color="black")
-
-#max-min
-max(yt_flounder$SST,na.rm = T) - min(yt_flounder$SST,na.rm = T)
-#90 CI
-quantile(yt_flounder$SST,0.95,na.rm = T) - quantile(yt_flounder$SST,0.05,na.rm = T)
-
-yt_flounder <- yt_flounder %>% mutate(temp_bin = round(SST*2)/2)
-yt_flounder_dist <- yt_flounder %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
-
-yt_flounder_niche<-left_join(temp_dist,yt_flounder_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish))%>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-yt_flounder_NB <- sum(yt_flounder_niche$niche)
-
-#cod
-cod<- egg_temp %>% filter(Common_Name == "Atlantic cod")
-max(cod$SST,na.rm = T) - min(cod$SST,na.rm = T)
-quantile(cod$SST,0.95,na.rm = T) - quantile(cod$SST,0.05,na.rm = T)
-
-ggplot() +
-  geom_histogram(data=db_trim,aes(x=SST),binwidth = 0.5, alpha=0.5,fill="magenta")+
-  geom_histogram(data=cod,aes(x=SST),binwidth = 0.5, alpha=0.5,color="black")
-
-#apply to cod
-cod <- cod %>% mutate(temp_bin = round(SST*2)/2)
-cod_dist <- cod %>% group_by(temp_bin) %>% tally %>% filter(is.na(temp_bin) == F) %>% 
-  mutate(total=sum(n),prop_fish=n/total) %>% dplyr::select(temp_bin,prop_fish)
-
-cod_niche<-left_join(temp_dist,cod_dist,by="temp_bin") %>% 
-  mutate(prop_fish=ifelse(is.na(prop_fish),0,prop_fish)) %>%
-  mutate (niche = sqrt(prop_samples*prop_fish)) %>%
-  mutate(q = prop_fish/prop_samples) %>%
-  mutate(q_norm = q/sum(q)) %>%
-  mutate(cdf_q_norm = cumsum(q_norm))
-
-cod_NB <- sum(cod_niche$niche)
+#clear environment
+rm(list = setdiff(ls(),c("egg_estimates","temp_dist_lewis","db_trim")))
 
 
 
-#Try fitting different distributions to silver hake data
-silver.count<-na.exclude(count(silver,temp.round))
-fit<-fitdistr(silver.count$temp.round,"Poisson")
-fit2<-fitdistr(silver.count$temp.round,"normal")
-fit3<-fitdistr(silver.count$temp.round,"negative binomial")
-hist(silver$temp,prob=T)
-lines(dpois(0:max(silver.count$temp.round),lambda = fit$estimate[1]),col="red")
-lines(dnorm(0:max(silver.count$temp.round),mean = fit2$estimate[1],sd=fit2$estimate[2]),col="magenta")
-lines(dnbinom(0:max(silver.count$temp.round),size = fit3$estimate[1],mu=fit3$estimate[2]),col="blue")
 
-
-# bootstrapping -----------------------------------------------------------
-#need db_trim
-silver_boot <- egg_estimates %>% filter(Common_Name == "Silver hake") %>% ungroup() %>% 
-  dplyr::select(cruise_station,est) 
-silver_boot <- left_join(db_trim,silver_boot,by="cruise_station") %>% 
-  mutate(est = replace(est,is.na(est),0)) %>%
-  dplyr::select(cruise_station,SST,est)
-
-#bootstrapping runs
-boot<-1000
-station_n<-length(silver_boot$cruise_station)
-boot_out<-c()
-for (j in 1:boot){
-  newdata<-as.data.frame(matrix(nrow = station_n,ncol=ncol(silver_boot)))
-  for(i in 1:station_n){
-    rownums<-sample(1:station_n,length(station_n),replace = T) 
-    newdata[i,]<-silver_boot[rownums,]
-  }
-  colnames(newdata)<-c("cruise_station","SST","est")
-  newdata <- newdata %>% mutate(temp_bin = round(SST*2)/2)
-  newdata_temp <- newdata %>% group_by(temp_bin) %>% tally() %>% rename(n_samples = n)
-  newdata <- newdata %>% group_by(temp_bin) %>% mutate(n_fish = sum(est)) %>%
-    dplyr::select(temp_bin,n_fish) %>% unique()
-  newdata<-left_join(newdata,newdata_temp,by="temp_bin")
-  new_q <- newdata %>% ungroup() %>% mutate(q = (n_fish/sum(n_fish)/(n_samples/sum(n_samples)))) %>% 
-    dplyr::select(temp_bin,q)
-  boot_out<-rbind(boot_out,new_q)
-}
-
-#get 5,95 CI
-boot_summary <- boot_out %>% group_by(temp_bin) %>% 
-  summarise(lower_CI = quantile(q,0.05),upper_CI = quantile(q,0.95)) 
-
-silver_q<-cdfs_lewis %>% filter(spp=="Silver hake")
-
-boot_summary %>%
-  ggplot(aes(x=temp_bin))+
-  geom_hline(yintercept = 1,linetype="dashed")+
-  geom_point(data=silver_q,aes(x=temp_bin,y=q),color="magenta")+
-  geom_errorbar(aes(ymin = lower_CI,ymax =upper_CI))
 

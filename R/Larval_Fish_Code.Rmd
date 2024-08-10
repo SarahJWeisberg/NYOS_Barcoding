@@ -41,7 +41,7 @@ library(here)
 library(rstatix) #modeling with tidy
 library(glmmTMB)#mixed models 
 
-
+source(here("R/Lewis_data.R"))
 
 #load in countries for plotting 
 world <- ne_countries(scale = "medium", returnclass = "sf")
@@ -121,12 +121,6 @@ ecomon_y[is.na(ecomon_y)] <- 0 #NAs should be true 0s
 
 ecomon <- cbind(ecomon_x, ecomon_y)
 ecomon <- ecomon %>% filter(!is.na(sfc_temp))
-# 
-# ecomon$date <- as.Date(ecomon$date, format =  "%d-%b-%y") #b here is the code for month when its words 
-# ecomon$month <- month(ecomon$date)
-# ecomon$year <- year(ecomon$date)
-# ecomon$day <- day(ecomon$date)
-
 ecomon_ynames <- colnames(ecomon_y)
 
 #histogram of SSTs
