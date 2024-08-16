@@ -55,7 +55,7 @@ sst <- sst %>% group_by(cruise_station) %>% mutate(SST = mean(SST)) %>% distinct
 
 #join datasets, select for relevant columns, remove NAs
 db_trim<- left_join(db,sst,by="cruise_station") %>% 
-  dplyr::select(cruise_station,SST,Egg_Count,IHF,Cruise_Name,Station) %>% filter(is.na(SST) == F)
+  dplyr::select(cruise_station,SST,Egg_Count,IHF,Cruise_Name,Station,Latitude,Longitude) %>% filter(is.na(SST) == F)
 
 #histogram of SST of all stations
 db_trim %>%

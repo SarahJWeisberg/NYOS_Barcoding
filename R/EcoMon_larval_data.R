@@ -43,7 +43,7 @@ ecomon[ecomon == 9999] <- NA
 #first split out x (environment) and y (species) to convert NAs to true 0s (because it is a survey)
 #select only species of interest
 ecomon_x <- ecomon %>% dplyr::select(cruise_station,sfc_temp)
-ecomon_y <- ecomon %>% select("hipobl_10m2","merbil_10m2","citarc_10m2","pep_tri")
+ecomon_y <- ecomon %>% select("hipobl_10m2","merbil_10m2","citarc_10m2","scoaqu_10m2","pep_tri")
 ecomon_y[is.na(ecomon_y)] <- 0 #NAs should be true 0s
 
 ecomon <- cbind(ecomon_x, ecomon_y)

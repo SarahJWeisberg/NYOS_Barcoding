@@ -1,0 +1,148 @@
+---
+title: "NYOS Transects and Stations with Fish DNA Barcoding Results"
+author: "Eleanor Heywood; modified by Sarah Weisberg"
+date: "7/29/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#load in pacakages
+library(ggplot2)
+library(tidyverse)
+library(sf)
+library(broom)
+library(scatterpie)
+library(marmap)
+library(dplyr)
+library(sf)
+```
+
+
+## 1. Establish base plot
+```{r create base plot}
+
+# #Call in coastline data
+# #This part of script converts the coastline shapefile into a cropped dataframe.
+#if (!require(gpclib)) install.packages("gpclib", type="source")
+#maptools::gpclibPermit()
+# Load in Long Island Coastal Shapefile
+coastline <-raster::shapefile("data/GSHHS_f_L1_CLIPPED2LONGISLAND.shp")
+coast_sub <- raster::crop(coastline, raster::extent(-74.5, -71.0, 38.25, 41.5)) # crop to study site
+coast_sub@data$id <- rownames(coast_sub@data) # make some rownames
+#coast_sub <- sf::st_as_sf(coast_sub, region = "id") # fortify
+# ####################
+# #Call in bathymetric data
+# #This part of script converts the bathymetric contours and accompanying data into a cropped dataframe. 
+nybathy <- getNOAA.bathy(-74.5, -71, 38.25, 41.5, resolution=1); bathydf <- as.xyz(nybathy) 
+bathydf$col <- NA
+bathydf$col <- ifelse(bathydf$V3 >= -100, ifelse(bathydf$V3 < -15, "b","a"),"c")
+bathydf$col <- factor(bathydf$col, levels=c("a",""))
+# ####################
+# #Separate land from ocean.
+# #This part of script helps to properly overlay the coastline data on the background bathymetric layer since `marmap` can only provide very
+# #coarse coastline resolution. 
+bathy_sea <- bathydf; bathy_sea$V3[bathy_sea$V3 > 1] <- NA
+#coast_fort <- fortify.map(coast_sub)
+coast_fort <- coast_sub
+# ####################
+# #Generate basemap
+# #This part of script generates the actual basemap that can be used for future plotting functions.
+# #This part of the script is broken up by comments explaining the function of each part. Edit accordingly. 
+basemap <- ggplot() + 
+  #This creates bathymetric raster layer; smooth interpolation
+  geom_raster(data=bathy_sea, aes(x=V1, y=V2),fill="#f1f5f8") +
+  #   #This creates bathymetric contour lines at: 50, 100, 500, 1000, 2000, and 3000 m depth thresholds
+  geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3), 
+              breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black",linewidth = 0.1) +
+  #   #This creates coastline polygons
+  geom_polygon(data=coast_fort, aes(x=long, y=lat, group=group), fill="lightgrey", color="black",size=0.25) +
+  #   #This normalizes the x- and y-axes so there aren't any funky empty white space between the axis edges and the actual plot
+  coord_equal(expand=FALSE, ylim=c(38.25, 41.5), xlim=c(-74.5, -71.25)) +
+  #   #Set latitudinal axis breaks to look prettier
+  # scale_y_continuous(breaks=c(39,40,41)) +
+  # scale_x_continuous(breaks = c(-74,-73,-72,-71))+
+  # #   #Set bathymetric gradient breaks
+  # scale_fill_gradient(limits=c(-3500,0), na.value="#daedf7", low="#586575", high="#daedf7",
+  #                     breaks=c(-500,-1500,-2500,-3500), labels=c(500,1500,2500,3500)) +
+  #   #Label axes
+  labs(x=expression(paste("Longitude (",degree,"W)")),
+       y=expression(paste("Latitude (",degree,"N)")))+
+       #fill="Depth (m)") + 
+  #   #Setting some plotting parameters, like text size and background color
+  theme(text=element_text(size=10), axis.text=element_text(size=10, color="black"),
+        strip.background=element_blank(), strip.text=element_blank(),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        legend.margin = margin(t=0, r=0, b=0, l=0, unit ="pt")) +
+ #  #   #Generate scalebar
+ #  ggsn::scalebar(x.min=-74, x.max=-73.2, y.min=41.4, y.max=41.5,
+ #                 dist=50, st.size=3, model="WGS84", dist_unit="km", transform=T,
+ #                 height=0.4, st.dist=0.8) +
+ #  #Generate North arrow
+ # ggsn::north(x.min=-74.5, x.max=-73.9, y.min=41, y.max=41.3, scale=1, symbol=3) +
+  #Label bathymetric contours
+  # geom_text(aes(x=x, y=y, label=text),
+  #           data=data.frame(x=c(rep(-71,5)),
+  #                           y=c(40.925, 40.025, 39.875, 39.75,39.55),
+  #                           text=c("50 m","100 m","500 m","1000 m","2000 m")),
+  #           color=c(rep("black",5)),size=2.5)+
+  theme_Publication()
+  # guides(fill="none")
+
+basemap
+```
+#3. Summary map for data paper
+```{r add scatterpie}
+# load in the all waypoints
+study_area<-read_csv(file="lat.long_new.nyos.stations.v6.csv")
+#filter for NYOS waypoints
+study_area<-study_area %>% filter(substr(Waypoint, 1,1) %in% c(1,2,3,4,5,6,7,8,9)) %>%
+  rename(Station_ID = Waypoint)
+
+#read in data from stations we sampled
+station_data<-read.csv("Station_Info - Corrected.csv")
+
+#remove extraneous entries
+station_data <- station_data %>% filter(!Haul_ID %in% c("E01B","E25B"))
+
+#isolate season information into own column
+station_data_clean <- station_data %>% 
+  select(Cruise_ID,Station_ID) %>%
+  mutate(season = substring(Cruise_ID,4)) %>%
+  group_by(Station_ID)
+
+#count number of times each station was sampled per season and total
+station_data_summary <- station_data_clean %>% 
+  group_by(Station_ID,season) %>%
+  tally() %>%
+  ungroup() %>%
+  group_by(Station_ID) %>%
+  mutate(total = sum(n))
+
+#format data frame for scatterpie plotting function
+station_data_summary<-station_data_summary %>% 
+  pivot_wider(names_from = season,values_from = n) %>%
+  mutate(across(where(is.numeric),~replace_na(.,0)))
+
+#join with lat/lon info
+station_data_summary <- left_join(station_data_summary,study_area, by = "Station_ID") 
+
+#rename seasons
+station_data_summary <- station_data_summary %>% distinct() %>%
+  rename("Spring"="5","Winter"="2","Summer"="7","Fall"="9")
+
+#plot
+#set color palette
+map_pal <- paletteer_d("nbapalettes::warriors_city2")
+Fig_1b<- basemap +
+   geom_scatterpie(data= station_data_summary, 
+                   aes(x=Longitude, y=Latitude, r =0.0125*total),
+                   cols=c("Spring","Summer","Fall","Winter"),linewidth=0.1,
+                   legend_name = "Season")+
+  scale_fill_manual(values = c(map_pal[3],map_pal[4],map_pal[2],map_pal[1]))+
+  ggtitle("NYOS Data")+
+  theme(legend.position = "bottom")
+
+Fig_1b
+```
+

@@ -67,7 +67,7 @@ fish_filter<- fish_filter %>% mutate(cruise_station = paste(Cruise_ID,Station_ID
   filter(Stage == "Egg", !Common_Name =="") %>% select(Common_Name,cruise_station) %>% group_by(cruise_station, Common_Name) %>% tally()
 
 #select for spp of interest
-fish_filter <- fish_filter %>% filter(Common_Name %in% c("Silver Hake","Gulfstream Flounder","Fourspot Flounder","Butterfish"))
+fish_filter <- fish_filter %>% filter(Common_Name %in% c("Silver Hake","Gulfstream Flounder","Fourspot Flounder","Butterfish","Windowpane Flounder"))
 fish_filter <- left_join(fish_filter,stations_filter,by="cruise_station")
 
 rm(fish,fish_tally,stations,bins)
