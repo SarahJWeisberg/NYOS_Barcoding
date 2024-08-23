@@ -57,10 +57,10 @@ ecomon_sp <- st_as_sf(x = ecomon,
                       coords = c("lon", "lat"),
                       crs = 4326)
 
-ecomon_sp <- ecomon_sp %>% mutate(season = ifelse(month %in% c(12,1,2),"winter",
-                                                ifelse(month %in% c(3,4,5), "spring",
-                                                       ifelse(month %in% c(6,7,8),"summer",
-                                                              "fall"))))
+ecomon_sp <- ecomon_sp %>% mutate(Season = ifelse(month %in% c(12,1,2),"Winter",
+                                                ifelse(month %in% c(3,4,5), "Spring",
+                                                       ifelse(month %in% c(6,7,8),"Summer",
+                                                              "Fall"))))
 
 ecomon <- ecomon %>% mutate(cruise_station = paste(cruise_name,station,sep = "_"))
 
@@ -69,10 +69,10 @@ lewis_sp <- left_join(stations_lewis,ecomon,by="cruise_station") %>% filter(!is.
 lewis_sp <- st_as_sf(x = lewis_sp, 
                       coords = c("lon", "lat"),
                       crs = 4326)
-lewis_sp <- lewis_sp %>% mutate(season = ifelse(month %in% c(12,1,2),"winter",
-                                                ifelse(month %in% c(3,4,5), "spring",
-                                                       ifelse(month %in% c(6,7,8),"summer",
-                                                              "fall"))))
+lewis_sp <- lewis_sp %>% mutate(Season = ifelse(month %in% c(12,1,2),"Winter",
+                                                ifelse(month %in% c(3,4,5), "Spring",
+                                                       ifelse(month %in% c(6,7,8),"Summer",
+                                                              "Fall"))))
 # #Call in bathymetric data
 # #This part of script converts the bathymetric contours and accompanying data into a cropped dataframe. 
 bathy <- getNOAA.bathy(-80, -65, 33.5, 46, resolution=1); bathydf <- as.xyz(bathy) 
@@ -88,8 +88,8 @@ bathy_sea <- bathydf; bathy_sea$V3[bathy_sea$V3 > 1] <- NA
 ecomon_egg_map <- ggplot() + geom_sf(data = world) + 
   geom_raster(data=bathy_sea, aes(x=V1, y=V2),fill="#f1f5f8") +
   #   #This creates bathymetric contour lines at: 50, 100, 500, 1000, 2000, and 3000 m depth thresholds
-  # geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3), 
-  #              breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black",linewidth = 0.1) +
+  #geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3),
+  #             breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black",linewidth = 0.1) +
   geom_sf(data = lewis_sp, size = 0.5,aes(color=season),show.legend = F) + 
   scale_color_manual(values = c(map_pal[3],map_pal[4],map_pal[2],map_pal[1]))+
   geom_sf(data = world,fill="lightgrey") +
@@ -111,23 +111,25 @@ Fig_1a <- ggplot() + geom_sf(data = world) +
   #   #This creates bathymetric contour lines at: 50, 100, 500, 1000, 2000, and 3000 m depth thresholds
   geom_contour(data=bathy_sea, aes(x= V1, y=V2, z=V3), 
                breaks=c(0,-50,-100,-500,-1000,-2000,-3000), colour="black",linewidth = 0.1) +
-  geom_sf(data = ecomon_sp, size = 0.5,aes(color=season))+
+  geom_sf(data = ecomon_sp, size = 0.5,aes(color=Season))+
   geom_sf(data = world,fill="lightgrey") +
   coord_sf(xlim=c(-78, -65), ylim=c(34,45), expand = F)+
-  labs(x=expression(paste("Longitude (",degree,"W)")),
-       y=expression(paste("Latitude (",degree,"N)")))+
-  scale_color_manual(values = c(map_pal[2],map_pal[3],map_pal[4],map_pal[1]))+
+  #labs(x=expression(paste("Longitude (",degree,"W)")),
+   #    y=expression(paste("Latitude (",degree,"N)")))+
+  labs(x=NULL,y=NULL)+
+  scale_color_manual(values = c(map_pal[3],map_pal[4],map_pal[2],map_pal[1]),breaks = c("Spring","Summer","Fall","Winter"))+
   # geom_text(aes(x=x, y=y, label=text),
-  #           data=data.frame(x=c(rep(-65.25,3)),
-  #                           y=c(42,41.5, 41),
-  #                           text=c("1000 m","2000 m","3000 m")),
-            #color=c(rep("black",3)),size=2.5)+
+  #          data=data.frame(x=c(rep(-65.25,4)),
+  #                            y=c(42,41.5, 41),
+  #                           text=c("1000","2000","3000")),
+  #           color="black",size=2.5)+
   theme_Publication()+
   theme(legend.position = "bottom")+
-  guides(colour = guide_legend(override.aes = list(size=5)))+
+  guides(color = guide_legend(override.aes = list(size=5)))+
   annotation_custom(ggplotGrob(ecomon_egg_map),xmin=-72, xmax=-65, ymin=34, ymax=39)+
   guides(color = guide_legend(override.aes = list(size=4)))+
   ggtitle("EcoMon Data")
+
 Fig_1a+theme(plot.margin=grid::unit(c(0,0,0,0), "mm"))
 
 # Fig_1 <- Fig_1a / Fig_1b &theme(legend.position = "bottom")

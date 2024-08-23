@@ -200,7 +200,7 @@ boot_summary <- boot_out %>% group_by(temp_bin,spp,data) %>%
 
 
 # modeling ----------------------------------------------------------------
-spp_cdf<-cdfs %>% filter(data == "EcoMon" & spp == "Windowpane Flounder")
+spp_cdf<-cdfs %>% filter(data == "EcoMon" & spp == "Silver Hake")
 spp_cdf <- spp_cdf %>% mutate(round_cdf = round(cdf_q_norm,digits = 4))
 test_glm<-glm(data=spp_cdf,formula=round_cdf~temp_bin, family = "quasibinomial")
 test_predictors<-list(temp_bin=seq(min(temp_dist$temp_bin), max(temp_dist$temp_bin),0.5))
@@ -223,7 +223,7 @@ ggplot(data=glm_predict, aes(x=temp,y=prop))+
   theme_Publication()+
   labs(title = "Windowpane Larvae")
 
-spp_cdf<-cdfs %>% filter(!data == "EcoMon" & spp == "Windowpane Flounder")
+spp_cdf<-cdfs %>% filter(!data == "EcoMon" & spp == "Silver Hake")
 spp_cdf <- spp_cdf %>% mutate(round_cdf = round(cdf_q_norm,digits = 4))
 test_glm2<-glm(data=spp_cdf,formula=round_cdf~temp_bin, family = "quasibinomial")
 test_predictors<-list(temp_bin=seq(min(spp_cdf$temp_bin), max(spp_cdf$temp_bin),0.5))
@@ -286,7 +286,7 @@ Fig_2b <- stations_all %>% filter(data == "EcoMon") %>%
   labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="Station Count")
 Fig_2b
 
-Fig_2a / Fig_2b + plot_annotation(tag_levels = "A")
+Fig_2b / Fig_2a + plot_annotation(tag_levels = "A")
 
 
 # Figure 3 - Silver Hake --------------------------------------------------
@@ -486,7 +486,7 @@ Fig_5a <- boot_summary %>%
   geom_point(data = cdfs %>% filter(!data == "EcoMon" & spp == "Gulfstream Flounder"),aes(x=temp_bin,y=q,color=data),size=2.25)+
   scale_color_manual(values = c(my_pal[10],my_pal[4]),labels=c("EcoMon Eggs","NYOS Eggs"))+
   labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="Single Parameter Quotient (SPQ)",
-       title="Gulfstream Flounder Eggs")+
+       title="Gulf Stream Flounder Eggs")+
   theme_Publication()+
   theme(legend.position = "inside",legend.position.inside = c(0.15,0.8))
 
@@ -498,7 +498,7 @@ Fig_5b <- boot_summary %>%
   geom_point(data = cdfs %>% filter(data == "EcoMon" & spp == "Gulfstream Flounder"),aes(x=temp_bin,y=q,color=data),size=2.25,
              show.legend=F)+
   scale_color_manual(values = c(my_pal[1]))+
-  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="Single Parameter Quotient (SPQ)",title="Gulfstream Flounder Larvae")+
+  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="Single Parameter Quotient (SPQ)",title="Gulf Stream Flounder Larvae")+
   theme_Publication()
 
 Fig_5_top <- Fig_5a+Fig_5b
@@ -525,7 +525,7 @@ Fig_5d <- ggplot(data=glm_predict, aes(x=temp,y=prop))+
   geom_line(data=spp_cdf,aes(x=temp_bin,y=cdf_q_norm),color=my_pal[1],linewidth=1)+
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4) +
   theme_Publication()+
-  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulfstream Flounder Larvae")
+  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulf Stream Flounder Larvae")
 
 #modeling eggs
 spp_cdf<-cdfs %>% filter(!data == "EcoMon" & spp == "Gulfstream Flounder")
@@ -548,7 +548,7 @@ Fig_5c <- ggplot(data=glm_predict2, aes(x=temp,y=prop))+
   scale_color_manual(values = c(my_pal[10],my_pal[4]),labels=c("EcoMon Eggs","NYOS Eggs"))+
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4) +
   theme_Publication()+
-  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulfstream Flounder Eggs")+
+  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulf Stream Flounder Eggs")+
   theme(legend.position = "inside",legend.position.inside = c(0.15,0.8))
 
 #compare both models
@@ -562,7 +562,7 @@ Fig_5e <- ggplot(data=glm_out, aes(x=temp,y=prop,color=stage))+
   scale_color_manual(values = c(my_pal[8],my_pal[12]))+
   scale_fill_manual(values = c(my_pal[8],my_pal[12]))+
   theme(legend.position = "inside",legend.position.inside = c(0.15,0.8))+
-  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulfstream Flounder: Eggs & Larvae")
+  labs(x = expression(paste("Sea Surface Temperature (",degree,"C)")),y="SPQ Cumulative Fraction",title="Gulf Stream Flounder: Eggs & Larvae")
 
 Fig_5_top <- (Fig_5a + Fig_5b)
 Fig_5_bot <- (Fig_5c / Fig_5d)| Fig_5e

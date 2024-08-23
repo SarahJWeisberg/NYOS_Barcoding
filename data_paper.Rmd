@@ -81,11 +81,11 @@ basemap <- ggplot() +
  #  #Generate North arrow
  # ggsn::north(x.min=-74.5, x.max=-73.9, y.min=41, y.max=41.3, scale=1, symbol=3) +
   #Label bathymetric contours
-  # geom_text(aes(x=x, y=y, label=text),
-  #           data=data.frame(x=c(rep(-71,5)),
-  #                           y=c(40.925, 40.025, 39.875, 39.75,39.55),
-  #                           text=c("50 m","100 m","500 m","1000 m","2000 m")),
-  #           color=c(rep("black",5)),size=2.5)+
+  geom_text(aes(x=x, y=y, label=text),
+            data=data.frame(x=c(rep(-71.35,5)),
+                            y=c(41, 40.16, 39.93, 39.825,39.65),
+                            text=c("50 m","100 m","500 m","1000 m","2000 m")),
+            color=c(rep("black",5)),size=2.5)+
   theme_Publication()
   # guides(fill="none")
 
